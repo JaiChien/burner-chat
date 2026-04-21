@@ -247,6 +247,7 @@ function getWebviewContent(serverUrl) {
   .msg .countdown { font-size: 9px; opacity: .5; margin-top: 2px; }
   .msg.mine .countdown { text-align: right; }
   .msg.burning { animation: flicker .6s infinite; }
+  .msg.unread { border-left: 3px solid #ff4500; padding-left: 9px; }
   @keyframes flicker { 0%,100%{opacity:1} 50%{opacity:.6} }
   #input-area { display: flex; gap: 8px; padding: 12px 16px; background: #111; }
   #input-area input { flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
@@ -308,6 +309,8 @@ let pollAbortCtrl = null;
 let burnDuration = 30, unreadCount = 0, soundEnabled = true, audioCtx = null;
 let cryptoKey = null;
 const msgReads = {}, sentReads = {};
+// 訊息暫存:等 focus 輸入框(別人訊息)或湊齊所有讀者(自己訊息)才開始倒數
+const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
 const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
 
 // ─── E2E 加密 (AES-256-GCM, key 派生自房間密碼) ───
@@ -669,7 +672,7 @@ async function handleEvent(d) {
     let text;
     try { text = await decryptText(d.encrypted); }
     catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
-    addChatMsg(d.sender, text, d.sender === nick, d.msgId);
+    addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders);
   }
   else if (d.type === 'system') addSysMsg(d.text);
   else if (d.type === 'burnUpdate') {
@@ -678,7 +681,13 @@ async function handleEvent(d) {
     if (bs) bs.value = burnDuration;
     if (!d.silent) addSysMsg('⏱ ' + d.by + ' 設定訊息存活為 ' + (burnDuration === 0 ? '永久' : burnDuration + ' 秒'));
   }
-  else if (d.type === 'read') markRead(d.msgId, d.reader);
+  else if (d.type === 'read') {
+    markRead(d.msgId, d.reader);
+    if (d.reader !== nick) tickMineReaders(d.msgId);
+  }
+  else if (d.type === 'presenceChange') {
+    onPresenceChange(d.onlineCount);
+  }
 }
 
 async function apiSend(payload) {
@@ -734,7 +743,7 @@ function updateReadIndicator(msgId) {
   ind.textContent = '✓ 已讀: ' + (rs.length <= 3 ? rs.join(', ') : rs.slice(0,3).join(', ') + ' +' + (rs.length-3));
 }
 
-function addChatMsg(sender, text, isMine, msgId) {
+function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = 'msg ' + (isMine ? 'mine' : 'other');
@@ -742,15 +751,66 @@ function addChatMsg(sender, text, isMine, msgId) {
   const s = document.createElement('div'); s.className = 'sender'; s.textContent = sender; div.appendChild(s);
   const t = document.createElement('div'); t.textContent = text; div.appendChild(t);
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
-  scheduleBurn(div);
-  if (!isMine && msgId && !sentReads[msgId]) {
-    sentReads[msgId] = true;
-    setTimeout(() => apiSend({type: 'read', msgId: msgId}), 100);
+
+  // 倒數觸發邏輯:
+  // - 自己的訊息:若沒人需要讀 (expectedReaders === 0) 立刻燒;否則等 read events 湊齊
+  // - 別人的訊息:加 unread 標記,等我 focus 輸入框才燒
+  if (isMine) {
+    const need = Math.max(0, expectedReaders || 0);
+    if (need === 0) {
+      scheduleBurn(div);
+    } else if (msgId) {
+      pendingBurn.set(msgId, { el: div, isMine: true, readersNeeded: need, readersGot: 0 });
+    }
+  } else {
+    div.classList.add('unread');
+    if (msgId) pendingBurn.set(msgId, { el: div, isMine: false });
   }
+
   if (msgId && msgReads[msgId]) updateReadIndicator(msgId);
   if (!isMine) {
     playNotify();
     if (document.hidden) { unreadCount++; updateTitle(); }
+  }
+}
+
+// focus 輸入框時觸發:所有當下未讀的別人訊息 → 標為已讀 + 開始倒數
+function onUserRead() {
+  for (const [msgId, info] of pendingBurn) {
+    if (info.isMine) continue;
+    info.el.classList.remove('unread');
+    scheduleBurn(info.el);
+    if (!sentReads[msgId]) {
+      sentReads[msgId] = true;
+      apiSend({type: 'read', msgId: msgId});
+    }
+    pendingBurn.delete(msgId);
+  }
+}
+
+// 收到 read event:若是別人讀了我的訊息,湊齊需要的讀者人數就開始燒
+function tickMineReaders(msgId) {
+  const info = pendingBurn.get(msgId);
+  if (!info || !info.isMine) return;
+  info.readersGot++;
+  if (info.readersGot >= info.readersNeeded) {
+    scheduleBurn(info.el);
+    pendingBurn.delete(msgId);
+  }
+}
+
+// 有人離開 → 降低 readersNeeded,必要時觸發燒
+function onPresenceChange(onlineCount) {
+  const newNeeded = Math.max(0, onlineCount - 1);
+  for (const [msgId, info] of pendingBurn) {
+    if (!info.isMine) continue;
+    if (newNeeded < info.readersNeeded) {
+      info.readersNeeded = newNeeded;
+      if (info.readersGot >= info.readersNeeded) {
+        scheduleBurn(info.el);
+        pendingBurn.delete(msgId);
+      }
+    }
   }
 }
 function addSysMsg(text) {
@@ -795,6 +855,7 @@ window.addEventListener('beforeunload', () => {
   stopPolling();
 });
 document.getElementById('msg-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+document.getElementById('msg-input')?.addEventListener('focus', onUserRead);
 document.getElementById('nick-input')?.addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('pwd-input').focus();
 });
@@ -954,6 +1015,10 @@ function reapOfflineClients() {
         appendEvent(room.id, {
           type: 'system',
           text: '🔥 ' + info.nick + ' 已離開(線上:' + room.clients.size + ')'
+        });
+        appendEvent(room.id, {
+          type: 'presenceChange',
+          onlineCount: room.clients.size
         });
       }
     }
@@ -1125,7 +1190,9 @@ const server = http.createServer(async (req, res) => {
         }
         messageCount++;
         const msgId = crypto.randomBytes(6).toString('hex');
-        appendEvent(room.id, { type: 'chat', sender: nick, encrypted: body.encrypted, msgId });
+        // 接收者 = 當下線上人數 - 發送者自己;為 0 代表「沒人需要讀」
+        const expectedReaders = Math.max(0, room.clients.size - 1);
+        appendEvent(room.id, { type: 'chat', sender: nick, encrypted: body.encrypted, msgId, expectedReaders });
         return sendJson(res, 200, { ok:true, msgId });
       } else if (body.type === 'setBurn') {
         const duration = Math.max(0, Math.min(3600, parseInt(body.duration) || 0));
@@ -1141,6 +1208,10 @@ const server = http.createServer(async (req, res) => {
           appendEvent(room.id, {
             type: 'system',
             text: '🔥 ' + nick + ' 已離開(線上:' + room.clients.size + ')'
+          });
+          appendEvent(room.id, {
+            type: 'presenceChange',
+            onlineCount: room.clients.size
           });
         }
         return sendJson(res, 200, { ok:true });
@@ -1570,6 +1641,7 @@ button:hover{background:var(--accent2)}
 .msg.sys .countdown{text-align:center;opacity:.35}
 .msg.burning{animation:flicker .5s infinite}
 .msg.burning .bubble{box-shadow:0 0 8px rgba(255,69,0,.4)}
+.msg.unread .bubble{border-left:3px solid var(--accent)}
 @keyframes flicker{0%,100%{opacity:1}50%{opacity:.65}}
 #input{display:flex;gap:8px;padding:12px 20px;background:var(--bg2);border-top:1px solid var(--border)}
 #input input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:4px;font-family:inherit;font-size:13px;outline:none}
@@ -1624,6 +1696,10 @@ let pollAbortCtrl = null; // 當前 fetch 的 AbortController
 let burnDuration = 30, unreadCount = 0, soundEnabled = true, audioCtx = null;
 let cryptoKey = null; // AES-256-GCM key,從房間密碼派生
 const msgReads = {}, sentReads = {};
+// 訊息「尚未開始倒數」的暫存區
+// 別人的訊息 → 等我 focus 輸入框才燒
+// 自己的訊息 → 等所有人都讀過才燒 (readersNeeded 人次)
+const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
 const HOST = location.host;
 
 // ─── E2E 加密 (AES-256-GCM, key 派生自房間密碼) ───
@@ -1993,7 +2069,7 @@ async function handleEvent(d) {
     let text;
     try { text = await decryptText(d.encrypted); }
     catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
-    addMsg(d.sender, text, d.sender === nick, d.msgId);
+    addMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders);
   }
   else if (d.type === 'system') addSys(d.text);
   else if (d.type === 'burnUpdate') {
@@ -2001,7 +2077,14 @@ async function handleEvent(d) {
     document.getElementById('burnSec').value = burnDuration;
     if (!d.silent) addSys('⏱ ' + d.by + ' 設定訊息存活為 ' + (burnDuration === 0 ? '永久' : burnDuration + ' 秒'));
   }
-  else if (d.type === 'read') markRead(d.msgId, d.reader);
+  else if (d.type === 'read') {
+    markRead(d.msgId, d.reader);
+    // 若是別人讀了我的訊息,檢查是否湊齊所有讀者
+    if (d.reader !== nick) tickMineReaders(d.msgId);
+  }
+  else if (d.type === 'presenceChange') {
+    onPresenceChange(d.onlineCount);
+  }
 }
 
 // 統一發送 helper (取代原本的 wsSend)
@@ -2059,22 +2142,75 @@ function updateReadIndicator(msgId){
   ind.textContent = '✓ 已讀: ' + (rs.length <= 3 ? rs.join(', ') : rs.slice(0,3).join(', ') + ' +' + (rs.length-3));
 }
 
-function addMsg(sender, text, isMe, msgId){
+function addMsg(sender, text, isMe, msgId, expectedReaders){
   const m = document.getElementById('msgs');
   const d = document.createElement('div');
   d.className = 'msg ' + (isMe ? 'me' : 'other');
   if(msgId) d.setAttribute('data-msg-id', msgId);
   d.innerHTML = '<div class="sender">' + escHtml(sender) + '</div><div class="bubble">' + escHtml(text) + '</div>';
   m.appendChild(d); m.scrollTop = m.scrollHeight;
-  scheduleBurn(d);
-  if(!isMe && msgId && !sentReads[msgId]){
-    sentReads[msgId] = true;
-    setTimeout(() => apiSend({type:'read', msgId: msgId}), 120);
+
+  // 倒數觸發邏輯
+  // - 自己的訊息:若當下沒人需要讀 (expectedReaders === 0),立刻燒;否則等 read event 湊齊
+  // - 別人的訊息:加 unread 標記,等我 focus 輸入框才燒
+  if (isMe) {
+    const need = Math.max(0, expectedReaders || 0);
+    if (need === 0) {
+      scheduleBurn(d);
+    } else if (msgId) {
+      pendingBurn.set(msgId, { el: d, isMine: true, readersNeeded: need, readersGot: 0 });
+    }
+  } else {
+    d.classList.add('unread');
+    if (msgId) pendingBurn.set(msgId, { el: d, isMine: false });
   }
+
   if(msgId && msgReads[msgId]) updateReadIndicator(msgId);
   if(!isMe){
     playNotify();
     if(document.hidden){ unreadCount++; updateTitle(); }
+  }
+}
+
+// focus 輸入框 → 所有當下未讀的別人訊息,標為已讀 + 開始倒數
+function onUserRead() {
+  for (const [msgId, info] of pendingBurn) {
+    if (info.isMine) continue;
+    info.el.classList.remove('unread');
+    scheduleBurn(info.el);
+    if (!sentReads[msgId]) {
+      sentReads[msgId] = true;
+      apiSend({type:'read', msgId: msgId});
+    }
+    pendingBurn.delete(msgId);
+  }
+}
+
+// 收到 read event 時:若此訊息是我發的,湊齊讀者人數就開始燒
+function tickMineReaders(msgId) {
+  const info = pendingBurn.get(msgId);
+  if (!info || !info.isMine) return;
+  info.readersGot++;
+  if (info.readersGot >= info.readersNeeded) {
+    scheduleBurn(info.el);
+    pendingBurn.delete(msgId);
+  }
+}
+
+// 有人離開 → 重算我自己 pending 訊息的 readersNeeded
+function onPresenceChange(onlineCount) {
+  // onlineCount 是當下線上人數,接收者 = onlineCount - 1 (自己)
+  // 但若我發完訊息後對方離開,readersNeeded 要降低
+  const newNeeded = Math.max(0, onlineCount - 1);
+  for (const [msgId, info] of pendingBurn) {
+    if (!info.isMine) continue;
+    if (newNeeded < info.readersNeeded) {
+      info.readersNeeded = newNeeded;
+      if (info.readersGot >= info.readersNeeded) {
+        scheduleBurn(info.el);
+        pendingBurn.delete(msgId);
+      }
+    }
   }
 }
 function addSys(t){
@@ -2125,6 +2261,7 @@ window.addEventListener('beforeunload', () => {
 })();
 
 document.getElementById('mi').addEventListener('keydown', e => { if(e.key === 'Enter') send(); });
+document.getElementById('mi').addEventListener('focus', onUserRead);
 document.getElementById('nickInput').addEventListener('keydown', e => { if(e.key === 'Enter') document.getElementById('pwd').focus(); });
 document.getElementById('pwd').addEventListener('keydown', e => { if(e.key === 'Enter') auth(); });
 document.getElementById('burnSec').addEventListener('keydown', e => { if(e.key === 'Enter') applyBurn(); });
@@ -2334,6 +2471,7 @@ function getWebviewContent(serverUrl) {
   .msg .countdown { font-size: 9px; opacity: .5; margin-top: 2px; }
   .msg.mine .countdown { text-align: right; }
   .msg.burning { animation: flicker .6s infinite; }
+  .msg.unread { border-left: 3px solid #ff4500; padding-left: 9px; }
   @keyframes flicker { 0%,100%{opacity:1} 50%{opacity:.6} }
   #input-area { display: flex; gap: 8px; padding: 12px 16px; background: #111; }
   #input-area input { flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
@@ -2395,6 +2533,8 @@ let pollAbortCtrl = null;
 let burnDuration = 30, unreadCount = 0, soundEnabled = true, audioCtx = null;
 let cryptoKey = null;
 const msgReads = {}, sentReads = {};
+// 訊息暫存:等 focus 輸入框(別人訊息)或湊齊所有讀者(自己訊息)才開始倒數
+const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
 const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
 
 // ─── E2E 加密 (AES-256-GCM) — WebCrypto + 純 JS fallback ───
@@ -2743,7 +2883,7 @@ async function handleEvent(d){
     let text;
     try { text = await decryptText(d.encrypted); }
     catch(err){ text = '[Cannot decrypt - wrong password or corrupted message]'; }
-    addChatMsg(d.sender, text, d.sender === nick, d.msgId);
+    addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders);
   }
   else if(d.type === 'system') addSysMsg(d.text);
   else if(d.type === 'burnUpdate'){
@@ -2752,7 +2892,13 @@ async function handleEvent(d){
     if(bs) bs.value = burnDuration;
     if(!d.silent) addSysMsg(d.by + ' set message lifetime to ' + (burnDuration === 0 ? 'never' : burnDuration + 's'));
   }
-  else if(d.type === 'read') markRead(d.msgId, d.reader);
+  else if(d.type === 'read'){
+    markRead(d.msgId, d.reader);
+    if(d.reader !== nick) tickMineReaders(d.msgId);
+  }
+  else if(d.type === 'presenceChange'){
+    onPresenceChange(d.onlineCount);
+  }
 }
 
 async function apiSend(payload){
@@ -2830,7 +2976,7 @@ async function sendMsg() {
   }
 }
 
-function addChatMsg(sender, text, isMine, msgId) {
+function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = 'msg ' + (isMine ? 'mine' : 'other');
@@ -2838,15 +2984,67 @@ function addChatMsg(sender, text, isMine, msgId) {
   const s = document.createElement('div'); s.className = 'sender'; s.textContent = sender; div.appendChild(s);
   const t = document.createElement('div'); t.textContent = text; div.appendChild(t);
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
-  scheduleBurn(div);
-  if(!isMine && msgId && !sentReads[msgId]){
-    sentReads[msgId] = true;
-    setTimeout(() => apiSend({type: 'read', msgId: msgId}), 100);
+
+  // Burn timing:
+  // - My own msg: if nobody needs to read (expectedReaders === 0), start burning immediately;
+  //               otherwise wait for enough read events.
+  // - Others' msg: add unread marker, start burning when I focus input.
+  if(isMine){
+    const need = Math.max(0, expectedReaders || 0);
+    if(need === 0){
+      scheduleBurn(div);
+    } else if(msgId){
+      pendingBurn.set(msgId, { el: div, isMine: true, readersNeeded: need, readersGot: 0 });
+    }
+  } else {
+    div.classList.add('unread');
+    if(msgId) pendingBurn.set(msgId, { el: div, isMine: false });
   }
+
   if(msgId && msgReads[msgId]) updateReadIndicator(msgId);
   if(!isMine){
     playNotify();
     if(document.hidden){ unreadCount++; updateTitle(); }
+  }
+}
+
+// When input gets focused → mark all others' unread msgs as read + start burning
+function onUserRead() {
+  for (const [msgId, info] of pendingBurn) {
+    if (info.isMine) continue;
+    info.el.classList.remove('unread');
+    scheduleBurn(info.el);
+    if (!sentReads[msgId]) {
+      sentReads[msgId] = true;
+      apiSend({type: 'read', msgId: msgId});
+    }
+    pendingBurn.delete(msgId);
+  }
+}
+
+// Tick when someone else read one of my msgs; burn when all needed readers are in
+function tickMineReaders(msgId) {
+  const info = pendingBurn.get(msgId);
+  if (!info || !info.isMine) return;
+  info.readersGot++;
+  if (info.readersGot >= info.readersNeeded) {
+    scheduleBurn(info.el);
+    pendingBurn.delete(msgId);
+  }
+}
+
+// Someone left → lower readersNeeded for my pending msgs; trigger burn if satisfied
+function onPresenceChange(onlineCount) {
+  const newNeeded = Math.max(0, onlineCount - 1);
+  for (const [msgId, info] of pendingBurn) {
+    if (!info.isMine) continue;
+    if (newNeeded < info.readersNeeded) {
+      info.readersNeeded = newNeeded;
+      if (info.readersGot >= info.readersNeeded) {
+        scheduleBurn(info.el);
+        pendingBurn.delete(msgId);
+      }
+    }
   }
 }
 function addSysMsg(text) {
@@ -2871,6 +3069,7 @@ document.addEventListener('visibilitychange', () => {
   if(!document.hidden && unreadCount > 0){ unreadCount = 0; updateTitle(); }
 });
 document.getElementById('msg-input')?.addEventListener('keydown', e => { if(e.key === 'Enter') sendMsg(); });
+document.getElementById('msg-input')?.addEventListener('focus', onUserRead);
 document.getElementById('nick-input')?.addEventListener('keydown', e => {
   if(e.key === 'Enter') document.getElementById('pwd-input').focus();
 });
