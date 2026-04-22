@@ -10,7 +10,24 @@
 
 ## [Unreleased]
 
-_(尚無未發布的變更)_
+### 新增 (Added)
+- **系統訊息獨立折疊區 (`#sys-log`)**:所有系統訊息(XXX 加入/離開/踢出/改密碼通知等)不再穿插於主訊息區,改到聊天室頂端的獨立區域(位於 roster 下方、burn-bar 上方)
+  - 預設折疊,只顯示最後一則
+  - 按 `▼ 展開 N 則` 可看完整列表(最大高度 10vh,超過 scroll)
+  - 保留最新 10 則,超過自動丟最舊的
+  - 單則時不顯示展開按鈕
+  - 不受反黑遮罩影響(維持原規格)
+- **訊息倒數依年齡遞增**:當使用者 focus 輸入框觸發 `onUserRead()` 批次 scheduleBurn 時,按訊息年齡遞增 delay
+  - 最舊的訊息 = `burnDuration` 秒
+  - 次舊 = `burnDuration + 1` 秒,以此類推
+  - 避免堆疊大量訊息時同時消失
+  - `scheduleBurn(el, extraDelay)` 簽章加入可選的第二參數
+  - 單獨觸發(如自己訊息 `expectedReaders=0` 立刻燒、`tickMineReaders` 湊齊)**不遞增**,維持原樣
+
+### 變更 (Changed)
+- `addSys` / `addSysMsg` 改為呼叫 `addSysEntry(text)`,不再建 DOM 進入主訊息區
+- 三個 client 新增狀態變數:`sysMsgs: []`, `MAX_SYS_MSGS = 10`, `sysExpanded: false`
+- 三個 client 新增函式:`addSysEntry / renderSysLog / toggleSysLog`
 
 ---
 

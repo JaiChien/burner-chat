@@ -219,6 +219,19 @@ function getWebviewContent(serverUrl) {
   #roster .roster-toggle:hover { background: #1a0a00; }
   #roster .roster-list { flex: 1; line-height: 1.5; }
   #roster.collapsed .roster-list { display: none; }
+  #sys-log { background: #080503; border-bottom: 1px solid #2a1a00;
+             padding: 4px 16px; font-size: 11px; color: #888; font-style: italic; }
+  #sys-log .sys-header { display: flex; align-items: center; gap: 8px; }
+  #sys-log .sys-last { flex: 1; opacity: .85;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sys-log .sys-toggle { cursor: pointer; color: #ff4500; user-select: none;
+                         padding: 1px 6px; border: 1px solid #2a1a00; border-radius: 2px;
+                         font-style: normal; font-size: 10px; flex-shrink: 0; }
+  #sys-log .sys-toggle:hover { background: #1a0a00; }
+  #sys-log .sys-full { max-height: 10vh; overflow-y: auto; margin-top: 4px; }
+  #sys-log .sys-line { padding: 2px 0; opacity: .7; }
+  #sys-log.collapsed .sys-full { display: none; }
+  #sys-log:not(.collapsed) .sys-last { display: none; }
   #burn-bar { background: #0f0a05; border-bottom: 1px solid #2a1a00;
               padding: 6px 16px; display: flex; align-items: center; gap: 8px;
               font-size: 11px; color: #888; flex-wrap: wrap; }
@@ -287,6 +300,13 @@ function getWebviewContent(serverUrl) {
   <span class="roster-toggle" onclick="toggleRoster()"></span>
   <span class="roster-list"></span>
 </div>
+<div id="sys-log" class="collapsed" style="display:none">
+  <div class="sys-header">
+    <span class="sys-last"></span>
+    <span class="sys-toggle" onclick="toggleSysLog()"></span>
+  </div>
+  <div class="sys-full"></div>
+</div>
 <div id="burn-bar" style="display:none">
   <label>🔥 訊息存活:</label>
   <input type="number" id="burn-sec" min="0" max="3600" value="30" />
@@ -319,6 +339,10 @@ const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readers
 let roster = [];
 let rosterExpanded = false;
 const ROSTER_COLLAPSE_THRESHOLD = 6;
+// 系統訊息獨立區:最新 10 則,預設折疊只顯示最後一則
+const sysMsgs = [];
+const MAX_SYS_MSGS = 10;
+let sysExpanded = false;
 let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;
@@ -617,10 +641,12 @@ function authenticate() {
       startHeartbeat();
       document.getElementById('me-label').textContent = '@' + nick;
       document.getElementById('auth-overlay').style.display = 'none';
-      ['header','roster','burn-bar','messages','input-area'].forEach(id => {
+      ['header','roster','sys-log','burn-bar','messages','input-area'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = (id === 'messages' || id === 'burn-bar' || id === 'roster') ? 'flex' : '';
+        // sys-log 預設隱藏直到有第一則系統訊息(由 renderSysLog 控制)
       });
+      renderSysLog();
       onConnected();
       startPolling();
     } else {
@@ -751,6 +777,45 @@ function toggleRoster() {
   renderRoster();
 }
 
+// ─── 系統訊息獨立區 ──────────────────────────────────────────────
+function addSysEntry(text) {
+  sysMsgs.push(text);
+  if (sysMsgs.length > MAX_SYS_MSGS) sysMsgs.shift();
+  renderSysLog();
+}
+function renderSysLog() {
+  const el = document.getElementById('sys-log');
+  if (!el) return;
+  const last = el.querySelector('.sys-last');
+  const full = el.querySelector('.sys-full');
+  const toggle = el.querySelector('.sys-toggle');
+  const n = sysMsgs.length;
+  if (n === 0) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  last.textContent = '⚙️ ' + sysMsgs[n - 1];
+  while (full.firstChild) full.removeChild(full.firstChild);
+  for (const m of sysMsgs) {
+    const line = document.createElement('div');
+    line.className = 'sys-line';
+    line.textContent = '⚙️ ' + m;
+    full.appendChild(line);
+  }
+  if (n === 1) {
+    toggle.textContent = '';
+    toggle.style.display = 'none';
+    el.classList.add('collapsed');
+  } else {
+    toggle.style.display = '';
+    toggle.textContent = sysExpanded ? '▲ 收合' : ('▼ 展開 ' + n + ' 則');
+    if (sysExpanded) el.classList.remove('collapsed');
+    else el.classList.add('collapsed');
+  }
+}
+function toggleSysLog() {
+  sysExpanded = !sysExpanded;
+  renderSysLog();
+}
+
 // ─── 聊天遮罩 ─────────────────────────────────────────────
 function updateChatVisibility() {
   const msgsEl = document.getElementById('messages');
@@ -776,6 +841,7 @@ function resetToLogin(reason) {
   authToken = null; nick = ''; clientId = null; cryptoKey = null;
   sinceSeq = 0;
   roster = []; rosterExpanded = false;
+  sysMsgs.length = 0; sysExpanded = false;
   pendingBurn.clear();
   for (const k in msgReads) delete msgReads[k];
   for (const k in sentReads) delete sentReads[k];
@@ -784,6 +850,8 @@ function resetToLogin(reason) {
   if (msgsEl) { msgsEl.innerHTML = ''; msgsEl.classList.remove('redacted'); msgsEl.style.display = 'none'; }
   const rosterEl = document.getElementById('roster');
   if (rosterEl) rosterEl.style.display = 'none';
+  const sysLogEl = document.getElementById('sys-log');
+  if (sysLogEl) sysLogEl.style.display = 'none';
   const burnBar = document.getElementById('burn-bar');
   if (burnBar) burnBar.style.display = 'none';
   const inputArea = document.getElementById('input-area');
@@ -804,11 +872,11 @@ function updateBurn() {
   apiSend({type: 'setBurn', duration: Math.min(3600, v)});
 }
 
-function scheduleBurn(el) {
+function scheduleBurn(el, extraDelay) {
   if (burnDuration <= 0) return;
   const cd = document.createElement('div');
   cd.className = 'countdown'; el.appendChild(cd);
-  let r = burnDuration; cd.textContent = '🔥 ' + r + 's';
+  let r = burnDuration + (extraDelay || 0); cd.textContent = '🔥 ' + r + 's';
   const iv = setInterval(() => {
     r--;
     if (r <= 2) el.classList.add('burning');
@@ -880,10 +948,14 @@ function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
 
 // focus 輸入框時觸發:所有當下未讀的別人訊息 → 標為已讀 + 開始倒數
 function onUserRead() {
+  // Batch scheduleBurn: oldest first, +0/+1/+2... seconds per message
+  // Prevents mass simultaneous burn when multiple messages pile up
+  let delay = 0;
   for (const [msgId, info] of pendingBurn) {
     if (info.isMine) continue;
     info.el.classList.remove('unread');
-    scheduleBurn(info.el);
+    scheduleBurn(info.el, delay);
+    delay++;
     if (!sentReads[msgId]) {
       sentReads[msgId] = true;
       apiSend({type: 'read', msgId: msgId});
@@ -918,10 +990,8 @@ function onPresenceChange(onlineCount) {
   }
 }
 function addSysMsg(text) {
-  const msgs = document.getElementById('messages');
-  const d = document.createElement('div'); d.className = 'msg system'; d.textContent = text;
-  msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-  // 系統訊息永不焚毀 (不呼叫 scheduleBurn)
+  // 系統訊息改進入獨立區 (#sys-log),不再插入 #messages
+  addSysEntry(text);
 }
 async function sendMsg() {
   const i = document.getElementById('msg-input');
@@ -1949,6 +2019,16 @@ h1{font-size:15px;color:var(--accent2);letter-spacing:2px}
 #roster .roster-list{flex:1;line-height:1.6}
 #roster.collapsed .roster-list{display:none}
 
+#sys-log{background:#080503;border-bottom:1px solid #2a1a00;padding:4px 20px;font-size:11px;color:var(--dim);font-style:italic}
+#sys-log .sys-header{display:flex;align-items:center;gap:10px}
+#sys-log .sys-last{flex:1;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sys-log .sys-toggle{cursor:pointer;color:var(--accent);user-select:none;padding:1px 6px;border:1px solid #2a1a00;border-radius:3px;font-style:normal;font-size:10px;flex-shrink:0}
+#sys-log .sys-toggle:hover{background:#1a0a00}
+#sys-log .sys-full{max-height:10vh;overflow-y:auto;margin-top:4px}
+#sys-log .sys-line{padding:2px 0;opacity:.7}
+#sys-log.collapsed .sys-full{display:none}
+#sys-log:not(.collapsed) .sys-last{display:none}
+
 #burn-bar{background:#0f0a05;border-bottom:1px solid #2a1a00;padding:8px 20px;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);flex-wrap:wrap}
 #burn-bar label{color:var(--accent2);font-weight:bold}
 #burn-bar input[type=number]{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;width:70px;border-radius:3px;font-family:inherit;font-size:12px;outline:none;text-align:center}
@@ -2023,6 +2103,13 @@ button:hover{background:var(--accent2)}
   <span class="roster-toggle" onclick="toggleRoster()"></span>
   <span class="roster-list"></span>
 </div>
+<div id="sys-log" class="collapsed" style="display:none">
+  <div class="sys-header">
+    <span class="sys-last"></span>
+    <span class="sys-toggle" onclick="toggleSysLog()"></span>
+  </div>
+  <div class="sys-full"></div>
+</div>
 <div id="burn-bar">
   <label>🔥 訊息存活時間:</label>
   <input type="number" id="burnSec" min="0" max="3600" value="30" />
@@ -2058,6 +2145,10 @@ const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readers
 let roster = [];                // 當下線上使用者 nick 陣列
 let rosterExpanded = false;     // 使用者手動切換
 const ROSTER_COLLAPSE_THRESHOLD = 6;  // 超過這個人數預設折疊
+// 系統訊息獨立區:最新 10 則,預設折疊只顯示最後一則
+const sysMsgs = [];
+const MAX_SYS_MSGS = 10;
+let sysExpanded = false;
 // 聊天可見性:需要 (input focused) AND (document 在前景)
 let inputFocused = false;
 let heartbeatTimer = null;
@@ -2501,6 +2592,45 @@ function toggleRoster() {
   renderRoster();
 }
 
+// ─── 系統訊息獨立區 ──────────────────────────────────────────────
+function addSysEntry(text) {
+  sysMsgs.push(text);
+  if (sysMsgs.length > MAX_SYS_MSGS) sysMsgs.shift();
+  renderSysLog();
+}
+function renderSysLog() {
+  const el = document.getElementById('sys-log');
+  if (!el) return;
+  const last = el.querySelector('.sys-last');
+  const full = el.querySelector('.sys-full');
+  const toggle = el.querySelector('.sys-toggle');
+  const n = sysMsgs.length;
+  if (n === 0) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  last.textContent = '⚙️ ' + sysMsgs[n - 1];
+  while (full.firstChild) full.removeChild(full.firstChild);
+  for (const m of sysMsgs) {
+    const line = document.createElement('div');
+    line.className = 'sys-line';
+    line.textContent = '⚙️ ' + m;
+    full.appendChild(line);
+  }
+  if (n === 1) {
+    toggle.textContent = '';
+    toggle.style.display = 'none';
+    el.classList.add('collapsed');
+  } else {
+    toggle.style.display = '';
+    toggle.textContent = sysExpanded ? '▲ 收合' : ('▼ 展開 ' + n + ' 則');
+    if (sysExpanded) el.classList.remove('collapsed');
+    else el.classList.add('collapsed');
+  }
+}
+function toggleSysLog() {
+  sysExpanded = !sysExpanded;
+  renderSysLog();
+}
+
 // ─── 聊天顯示 / 遮罩邏輯 ──────────────────────────────────────────────
 function updateChatVisibility() {
   const msgsEl = document.getElementById('msgs');
@@ -2533,6 +2663,7 @@ function resetToLogin(reason) {
   authToken = null; nick = ''; clientId = null; cryptoKey = null;
   sinceSeq = 0;
   roster = []; rosterExpanded = false;
+  sysMsgs.length = 0; sysExpanded = false;
   pendingBurn.clear();
   for (const k in msgReads) delete msgReads[k];
   for (const k in sentReads) delete sentReads[k];
@@ -2541,6 +2672,7 @@ function resetToLogin(reason) {
   const msgsEl = document.getElementById('msgs');
   if (msgsEl) { msgsEl.innerHTML = ''; msgsEl.classList.remove('redacted'); }
   renderRoster();
+  renderSysLog();
   // 顯示登入 overlay
   const authEl = document.getElementById('auth');
   if (authEl) authEl.style.display = 'flex';
@@ -2564,10 +2696,10 @@ function applyBurn(){
 }
 function setPreset(n){ document.getElementById('burnSec').value = n; applyBurn(); }
 
-function scheduleBurn(el){
+function scheduleBurn(el, extraDelay){
   if(burnDuration <= 0) return;
   const cd = document.createElement('div'); cd.className = 'countdown'; el.appendChild(cd);
-  let r = burnDuration; cd.textContent = '🔥 ' + r + 's';
+  let r = burnDuration + (extraDelay || 0); cd.textContent = '🔥 ' + r + 's';
   const iv = setInterval(()=>{
     r--;
     if(r <= 2) el.classList.add('burning');
@@ -2636,10 +2768,15 @@ function addMsg(sender, text, isMe, msgId, expectedReaders){
 
 // focus 輸入框 → 所有當下未讀的別人訊息,標為已讀 + 開始倒數
 function onUserRead() {
+  // 批次 scheduleBurn:按年齡順序(最舊在前)遞增 delay
+  // 第 1 則 +0 秒,第 2 則 +1 秒,第 3 則 +2 秒...
+  // 避免一次堆疊大量訊息時同時消失
+  let delay = 0;
   for (const [msgId, info] of pendingBurn) {
     if (info.isMine) continue;
     info.el.classList.remove('unread');
-    scheduleBurn(info.el);
+    scheduleBurn(info.el, delay);
+    delay++;
     if (!sentReads[msgId]) {
       sentReads[msgId] = true;
       apiSend({type:'read', msgId: msgId});
@@ -2676,10 +2813,8 @@ function onPresenceChange(onlineCount) {
   }
 }
 function addSys(t){
-  const m = document.getElementById('msgs');
-  const d = document.createElement('div'); d.className = 'msg sys'; d.textContent = t;
-  m.appendChild(d); m.scrollTop = m.scrollHeight;
-  // 系統訊息永不焚毀
+  // 系統訊息改進入獨立區 (#sys-log),不再插入 #msgs
+  addSysEntry(t);
 }
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 async function send(){
@@ -2927,6 +3062,19 @@ function getWebviewContent(serverUrl) {
   #roster .roster-toggle:hover { background: #1a0a00; }
   #roster .roster-list { flex: 1; line-height: 1.5; }
   #roster.collapsed .roster-list { display: none; }
+  #sys-log { background: #080503; border-bottom: 1px solid #2a1a00;
+             padding: 4px 16px; font-size: 11px; color: #888; font-style: italic; }
+  #sys-log .sys-header { display: flex; align-items: center; gap: 8px; }
+  #sys-log .sys-last { flex: 1; opacity: .85;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sys-log .sys-toggle { cursor: pointer; color: #ff4500; user-select: none;
+                         padding: 1px 6px; border: 1px solid #2a1a00; border-radius: 2px;
+                         font-style: normal; font-size: 10px; flex-shrink: 0; }
+  #sys-log .sys-toggle:hover { background: #1a0a00; }
+  #sys-log .sys-full { max-height: 10vh; overflow-y: auto; margin-top: 4px; }
+  #sys-log .sys-line { padding: 2px 0; opacity: .7; }
+  #sys-log.collapsed .sys-full { display: none; }
+  #sys-log:not(.collapsed) .sys-last { display: none; }
   #burn-bar { background: #0f0a05; border-bottom: 1px solid #2a1a00;
               padding: 6px 16px; display: flex; align-items: center; gap: 8px;
               font-size: 11px; color: #888; flex-wrap: wrap; }
@@ -2995,6 +3143,13 @@ function getWebviewContent(serverUrl) {
   <span class="roster-toggle" onclick="toggleRoster()"></span>
   <span class="roster-list"></span>
 </div>
+<div id="sys-log" class="collapsed" style="display:none">
+  <div class="sys-header">
+    <span class="sys-last"></span>
+    <span class="sys-toggle" onclick="toggleSysLog()"></span>
+  </div>
+  <div class="sys-full"></div>
+</div>
 <div id="burn-bar" style="display:none">
   <label>Burn after:</label>
   <input type="number" id="burn-sec" min="0" max="3600" value="30" />
@@ -3027,6 +3182,10 @@ const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readers
 let roster = [];
 let rosterExpanded = false;
 const ROSTER_COLLAPSE_THRESHOLD = 6;
+// 系統訊息獨立區:最新 10 則,預設折疊只顯示最後一則
+const sysMsgs = [];
+const MAX_SYS_MSGS = 10;
+let sysExpanded = false;
 let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;
@@ -3315,10 +3474,11 @@ function authenticate() {
       startHeartbeat();
       document.getElementById('me-label').textContent = '@' + nick;
       document.getElementById('auth-overlay').style.display = 'none';
-      ['header','roster','burn-bar','messages','input-area'].forEach(id => {
+      ['header','roster','sys-log','burn-bar','messages','input-area'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.style.display = (id === 'messages' || id === 'burn-bar' || id === 'roster') ? 'flex' : '';
       });
+      renderSysLog();
       onConnected();
       startPolling();
     } else {
@@ -3445,6 +3605,45 @@ function toggleRoster() {
   renderRoster();
 }
 
+// ─── 系統訊息獨立區 ──────────────────────────────────────────────
+function addSysEntry(text) {
+  sysMsgs.push(text);
+  if (sysMsgs.length > MAX_SYS_MSGS) sysMsgs.shift();
+  renderSysLog();
+}
+function renderSysLog() {
+  const el = document.getElementById('sys-log');
+  if (!el) return;
+  const last = el.querySelector('.sys-last');
+  const full = el.querySelector('.sys-full');
+  const toggle = el.querySelector('.sys-toggle');
+  const n = sysMsgs.length;
+  if (n === 0) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  last.textContent = '⚙️ ' + sysMsgs[n - 1];
+  while (full.firstChild) full.removeChild(full.firstChild);
+  for (const m of sysMsgs) {
+    const line = document.createElement('div');
+    line.className = 'sys-line';
+    line.textContent = '⚙️ ' + m;
+    full.appendChild(line);
+  }
+  if (n === 1) {
+    toggle.textContent = '';
+    toggle.style.display = 'none';
+    el.classList.add('collapsed');
+  } else {
+    toggle.style.display = '';
+    toggle.textContent = sysExpanded ? '▲ Hide' : ('▼ Show ' + n + ' system msgs');
+    if (sysExpanded) el.classList.remove('collapsed');
+    else el.classList.add('collapsed');
+  }
+}
+function toggleSysLog() {
+  sysExpanded = !sysExpanded;
+  renderSysLog();
+}
+
 // ─── Chat redaction ──────────────────────────────────────
 function updateChatVisibility() {
   const msgsEl = document.getElementById('messages');
@@ -3470,6 +3669,7 @@ function resetToLogin(reason) {
   authToken = null; nick = ''; clientId = null; cryptoKey = null;
   sinceSeq = 0;
   roster = []; rosterExpanded = false;
+  sysMsgs.length = 0; sysExpanded = false;
   pendingBurn.clear();
   for(const k in msgReads) delete msgReads[k];
   for(const k in sentReads) delete sentReads[k];
@@ -3478,6 +3678,8 @@ function resetToLogin(reason) {
   if(msgsEl){ msgsEl.innerHTML = ''; msgsEl.classList.remove('redacted'); msgsEl.style.display = 'none'; }
   const rosterEl = document.getElementById('roster');
   if(rosterEl) rosterEl.style.display = 'none';
+  const sysLogEl = document.getElementById('sys-log');
+  if(sysLogEl) sysLogEl.style.display = 'none';
   const burnBar = document.getElementById('burn-bar');
   if(burnBar) burnBar.style.display = 'none';
   const inputArea = document.getElementById('input-area');
@@ -3498,11 +3700,11 @@ function updateBurn() {
   apiSend({type: 'setBurn', duration: Math.min(3600, v)});
 }
 
-function scheduleBurn(el) {
+function scheduleBurn(el, extraDelay) {
   if(burnDuration <= 0) return;
   const cd = document.createElement('div');
   cd.className = 'countdown'; el.appendChild(cd);
-  let r = burnDuration; cd.textContent = r + 's';
+  let r = burnDuration + (extraDelay || 0); cd.textContent = r + 's';
   const iv = setInterval(() => {
     r--;
     if(r <= 2) el.classList.add('burning');
@@ -3597,10 +3799,14 @@ function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
 
 // When input gets focused → mark all others' unread msgs as read + start burning
 function onUserRead() {
+  // Batch scheduleBurn: oldest first, +0/+1/+2... seconds per message
+  // Prevents mass simultaneous burn when multiple messages pile up
+  let delay = 0;
   for (const [msgId, info] of pendingBurn) {
     if (info.isMine) continue;
     info.el.classList.remove('unread');
-    scheduleBurn(info.el);
+    scheduleBurn(info.el, delay);
+    delay++;
     if (!sentReads[msgId]) {
       sentReads[msgId] = true;
       apiSend({type: 'read', msgId: msgId});
@@ -3635,10 +3841,8 @@ function onPresenceChange(onlineCount) {
   }
 }
 function addSysMsg(text) {
-  const msgs = document.getElementById('messages');
-  const d = document.createElement('div'); d.className = 'msg system'; d.textContent = text;
-  msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-  // 系統訊息永不焚毀 (不呼叫 scheduleBurn)
+  // 系統訊息改進入獨立區 (#sys-log),不再插入 #messages
+  addSysEntry(text);
 }
 
 window.addEventListener('beforeunload', () => {
