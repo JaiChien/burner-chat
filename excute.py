@@ -3,20 +3,7 @@
 🔥 BurnerChat VSCode Extension Installer
 自動安裝焚模式聊天室 VSCode 擴充套件並啟動伺服器
 
-v1.5.0 新增:
-  • 端對端加密 (E2EE) — AES-256-GCM,key 派生自房間密碼,伺服器永遠看不到明文
-
-v1.4.0:
-  • Admin 後台 + 多房間 + 一鍵複製邀請
-
-v1.3.0:
-  • 標題未讀計數 + Teams 風格提示音
-
-v1.2.0:
-  • 自訂暱稱 + 已讀回執
-
-v1.1.0:
-  • 訊息自動燃燒
+版本歷史請見同目錄的 CHANGELOG.md
 """
 
 import os
@@ -224,6 +211,14 @@ function getWebviewContent(serverUrl) {
                transition: opacity .2s, transform .1s; padding: 2px 6px; border-radius: 3px; }
   .sound-btn:hover { opacity: 1; transform: scale(1.15); background: rgba(255,69,0,.1); }
   #status { font-size: 11px; color: #666; margin-left: auto; }
+  #roster { background: #0a0503; border-bottom: 1px solid #2a1a00;
+            padding: 5px 16px; font-size: 11px; color: #888;
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  #roster .roster-toggle { cursor: pointer; color: #ff4500; user-select: none;
+                           padding: 1px 6px; border: 1px solid #2a1a00; border-radius: 2px; }
+  #roster .roster-toggle:hover { background: #1a0a00; }
+  #roster .roster-list { flex: 1; line-height: 1.5; }
+  #roster.collapsed .roster-list { display: none; }
   #burn-bar { background: #0f0a05; border-bottom: 1px solid #2a1a00;
               padding: 6px 16px; display: flex; align-items: center; gap: 8px;
               font-size: 11px; color: #888; flex-wrap: wrap; }
@@ -248,6 +243,11 @@ function getWebviewContent(serverUrl) {
   .msg.mine .countdown { text-align: right; }
   .msg.burning { animation: flicker .6s infinite; }
   .msg.unread { border-left: 3px solid #ff4500; padding-left: 9px; }
+  /* 反黑遮罩:未 focus 或分頁背景時,訊息文字顯示為 █████ */
+  #messages.redacted .msg:not(.system) .text-content { font-size: 0; }
+  #messages.redacted .msg:not(.system) .text-content::before {
+    content: attr(data-mask); font-size: 12px; color: #888; opacity: .6; letter-spacing: -2px;
+  }
   @keyframes flicker { 0%,100%{opacity:1} 50%{opacity:.6} }
   #input-area { display: flex; gap: 8px; padding: 12px 16px; background: #111; }
   #input-area input { flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
@@ -283,6 +283,10 @@ function getWebviewContent(serverUrl) {
   <span id="sound-btn" class="sound-btn" onclick="toggleSound()">🔔</span>
   <span id="status">●  連線中...</span>
 </div>
+<div id="roster" class="collapsed" style="display:none">
+  <span class="roster-toggle" onclick="toggleRoster()"></span>
+  <span class="roster-list"></span>
+</div>
 <div id="burn-bar" style="display:none">
   <label>🔥 訊息存活:</label>
   <input type="number" id="burn-sec" min="0" max="3600" value="30" />
@@ -311,6 +315,13 @@ let cryptoKey = null;
 const msgReads = {}, sentReads = {};
 // 訊息暫存:等 focus 輸入框(別人訊息)或湊齊所有讀者(自己訊息)才開始倒數
 const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
+// 線上名單 + UI 狀態
+let roster = [];
+let rosterExpanded = false;
+const ROSTER_COLLAPSE_THRESHOLD = 6;
+let inputFocused = false;
+let heartbeatTimer = null;
+const HEARTBEAT_INTERVAL = 15000;
 const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
 
 // ─── E2E 加密 (AES-256-GCM, key 派生自房間密碼) ───
@@ -596,10 +607,19 @@ function authenticate() {
         const bs = document.getElementById('burn-sec');
         if (bs) bs.value = burnDuration;
       }
+      // 初始化 roster
+      roster = Array.isArray(data.nicks) ? data.nicks.slice() : [];
+      rosterExpanded = false;
+      renderRoster();
+      // 預設遮罩(還沒 focus 輸入框)
+      updateChatVisibility();
+      // 啟動 heartbeat
+      startHeartbeat();
       document.getElementById('me-label').textContent = '@' + nick;
       document.getElementById('auth-overlay').style.display = 'none';
-      ['header','burn-bar','messages','input-area'].forEach(id => {
-        document.getElementById(id).style.display = (id === 'messages' || id === 'burn-bar') ? 'flex' : '';
+      ['header','roster','burn-bar','messages','input-area'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (id === 'messages' || id === 'burn-bar' || id === 'roster') ? 'flex' : '';
       });
       onConnected();
       startPolling();
@@ -640,7 +660,7 @@ async function startPolling() {
       const r = await fetch(url, opts);
       if (r.status === 401 || r.status === 404) {
         polling = false;
-        onDisconnected('驗證失效,請重新登入');
+        resetToLogin('連線逾時或已被管理員移除,請重新登入');
         return;
       }
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -686,7 +706,14 @@ async function handleEvent(d) {
     if (d.reader !== nick) tickMineReaders(d.msgId);
   }
   else if (d.type === 'presenceChange') {
+    if (Array.isArray(d.nicks)) {
+      roster = d.nicks.slice();
+      renderRoster();
+    }
     onPresenceChange(d.onlineCount);
+  }
+  else if (d.type === 'roomDeleted') {
+    resetToLogin('此房間已被管理員刪除');
   }
 }
 
@@ -700,6 +727,75 @@ async function apiSend(payload) {
     });
     return r.ok;
   } catch(e) { return false; }
+}
+
+// ─── 線上名單 ─────────────────────────────────────────────
+function renderRoster() {
+  const el = document.getElementById('roster');
+  if (!el) return;
+  const list = el.querySelector('.roster-list');
+  const toggle = el.querySelector('.roster-toggle');
+  const n = roster.length;
+  const shouldCollapse = n > ROSTER_COLLAPSE_THRESHOLD && !rosterExpanded;
+  if (shouldCollapse) {
+    el.classList.add('collapsed');
+    toggle.textContent = '▼ 展開 ' + n + ' 人';
+  } else {
+    el.classList.remove('collapsed');
+    toggle.textContent = n > ROSTER_COLLAPSE_THRESHOLD ? '▲ 收合' : '👥';
+    list.textContent = '線上 (' + n + '):' + roster.join(', ');
+  }
+}
+function toggleRoster() {
+  rosterExpanded = !rosterExpanded;
+  renderRoster();
+}
+
+// ─── 聊天遮罩 ─────────────────────────────────────────────
+function updateChatVisibility() {
+  const msgsEl = document.getElementById('messages');
+  if (!msgsEl) return;
+  const visible = inputFocused && !document.hidden;
+  if (visible) msgsEl.classList.remove('redacted');
+  else msgsEl.classList.add('redacted');
+}
+
+// ─── Heartbeat ───────────────────────────────────────────
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => { apiSend({ type: 'heartbeat' }); }, HEARTBEAT_INTERVAL);
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// ─── 重置登入 ─────────────────────────────────────────────
+function resetToLogin(reason) {
+  stopPolling();
+  stopHeartbeat();
+  authToken = null; nick = ''; clientId = null; cryptoKey = null;
+  sinceSeq = 0;
+  roster = []; rosterExpanded = false;
+  pendingBurn.clear();
+  for (const k in msgReads) delete msgReads[k];
+  for (const k in sentReads) delete sentReads[k];
+  unreadCount = 0; updateTitle();
+  const msgsEl = document.getElementById('messages');
+  if (msgsEl) { msgsEl.innerHTML = ''; msgsEl.classList.remove('redacted'); msgsEl.style.display = 'none'; }
+  const rosterEl = document.getElementById('roster');
+  if (rosterEl) rosterEl.style.display = 'none';
+  const burnBar = document.getElementById('burn-bar');
+  if (burnBar) burnBar.style.display = 'none';
+  const inputArea = document.getElementById('input-area');
+  if (inputArea) inputArea.style.display = 'none';
+  const authOverlay = document.getElementById('auth-overlay');
+  if (authOverlay) authOverlay.style.display = 'flex';
+  const err = document.getElementById('auth-err');
+  if (err && reason) { err.textContent = '⚠ ' + reason; setTimeout(() => err.textContent = '', 4000); }
+  const st = document.getElementById('status');
+  if (st) { st.textContent = '●  連線中...'; st.style.color = ''; }
+  const nickInput = document.getElementById('nick-input');
+  if (nickInput) nickInput.focus();
 }
 
 function updateBurn() {
@@ -749,7 +845,15 @@ function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
   div.className = 'msg ' + (isMine ? 'mine' : 'other');
   if (msgId) div.setAttribute('data-msg-id', msgId);
   const s = document.createElement('div'); s.className = 'sender'; s.textContent = sender; div.appendChild(s);
-  const t = document.createElement('div'); t.textContent = text; div.appendChild(t);
+  // 文字包一層 .text-content 讓 redacted 狀態下能用 ::before 顯示 █ 遮罩
+  const t = document.createElement('div');
+  const inner = document.createElement('span');
+  inner.className = 'text-content';
+  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2)));
+  inner.setAttribute('data-mask', '█'.repeat(maskLen));
+  inner.textContent = text;
+  t.appendChild(inner);
+  div.appendChild(t);
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 
   // 倒數觸發邏輯:
@@ -817,7 +921,7 @@ function addSysMsg(text) {
   const msgs = document.getElementById('messages');
   const d = document.createElement('div'); d.className = 'msg system'; d.textContent = text;
   msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-  scheduleBurn(d);
+  // 系統訊息永不焚毀 (不呼叫 scheduleBurn)
 }
 async function sendMsg() {
   const i = document.getElementById('msg-input');
@@ -853,9 +957,18 @@ window.addEventListener('beforeunload', () => {
     }
   } catch(e){}
   stopPolling();
+  stopHeartbeat();
 });
 document.getElementById('msg-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
-document.getElementById('msg-input')?.addEventListener('focus', onUserRead);
+document.getElementById('msg-input')?.addEventListener('focus', () => {
+  inputFocused = true;
+  updateChatVisibility();
+  onUserRead();
+});
+document.getElementById('msg-input')?.addEventListener('blur', () => {
+  inputFocused = false;
+  updateChatVisibility();
+});
 document.getElementById('nick-input')?.addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('pwd-input').focus();
 });
@@ -992,7 +1105,7 @@ function appendEvent(roomId, event) {
 }
 
 // ─── Client 狀態維護 (heartbeat / 離線偵測) ──────────────────────────────────
-const CLIENT_TIMEOUT_MS = 60000;  // 60s 沒 poll 就當離線
+const CLIENT_TIMEOUT_MS = 30000;  // 30s 沒 poll 就當離線(被 reap)
 
 function touchClient(roomId, clientId, nick) {
   const room = rooms.get(roomId);
@@ -1012,17 +1125,29 @@ function reapOfflineClients() {
     for (const [cid, info] of room.clients) {
       if (now - info.lastSeen > CLIENT_TIMEOUT_MS) {
         room.clients.delete(cid);
+        // 同時刪掉該 clientId 對應的 token(強制重新登入)
+        for (const [t, td] of tokens) {
+          if (td.clientId === cid) tokens.delete(t);
+        }
         appendEvent(room.id, {
           type: 'system',
           text: '🔥 ' + info.nick + ' 已離開(線上:' + room.clients.size + ')'
         });
         appendEvent(room.id, {
           type: 'presenceChange',
-          onlineCount: room.clients.size
+          onlineCount: room.clients.size,
+          nicks: roomNicks(room)
         });
       }
     }
   }
+}
+
+// 取得房間當下的 nick 清單
+function roomNicks(room) {
+  const ns = [];
+  for (const info of room.clients.values()) ns.push(info.nick);
+  return ns;
 }
 setInterval(reapOfflineClients, 15000);
 
@@ -1079,7 +1204,10 @@ const server = http.createServer(async (req, res) => {
       id: r.id, name: r.name, password: r.password,
       online: r.clients.size, burnDuration: r.burnDuration,
       createdAt: r.createdAt, isDefault: r.isDefault,
-      url: roomUrl(r.id)
+      url: roomUrl(r.id),
+      clients: Array.from(r.clients.entries()).map(([cid, info]) => ({
+        clientId: cid, nick: info.nick
+      }))
     }));
     list.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0) || a.createdAt - b.createdAt);
     return sendJson(res, 200, { ok:true, rooms: list });
@@ -1096,6 +1224,102 @@ const server = http.createServer(async (req, res) => {
         id: room.id, name: room.name, password: room.password,
         url: roomUrl(room.id)
       }});
+    } catch(e) { return sendJson(res, 400, { ok:false, error:'請求格式錯誤' }); }
+  }
+
+  // 列出某房間的在線成員(給 admin 後台用)
+  if (p === '/admin/room-clients' && req.method === 'GET') {
+    if (!isAdmin(req)) return sendJson(res, 401, { ok:false, error:'未授權' });
+    const roomId = url.searchParams.get('roomId');
+    const room = rooms.get(roomId);
+    if (!room) return sendJson(res, 404, { ok:false, error:'房間不存在' });
+    const clients = [];
+    for (const [cid, info] of room.clients) {
+      clients.push({ clientId: cid, nick: info.nick, lastSeen: info.lastSeen });
+    }
+    return sendJson(res, 200, { ok:true, clients });
+  }
+
+  // Admin 踢人下線
+  if (p === '/admin/kick' && req.method === 'POST') {
+    if (!isAdmin(req)) return sendJson(res, 401, { ok:false, error:'未授權' });
+    try {
+      const { roomId, clientId } = await readJsonBody(req);
+      const room = rooms.get(roomId);
+      if (!room) return sendJson(res, 404, { ok:false, error:'房間不存在' });
+      const info = room.clients.get(clientId);
+      if (!info) return sendJson(res, 404, { ok:false, error:'成員不存在' });
+      room.clients.delete(clientId);
+      // 刪該 clientId 對應的 token
+      for (const [t, td] of tokens) {
+        if (td.clientId === clientId) tokens.delete(t);
+      }
+      appendEvent(room.id, {
+        type: 'system',
+        text: '🚫 ' + info.nick + ' 已被管理員移除(線上:' + room.clients.size + ')'
+      });
+      appendEvent(room.id, {
+        type: 'presenceChange',
+        onlineCount: room.clients.size,
+        nicks: roomNicks(room)
+      });
+      return sendJson(res, 200, { ok:true });
+    } catch(e) { return sendJson(res, 400, { ok:false, error:'請求格式錯誤' }); }
+  }
+
+  // ─── Admin:改密碼 ─────────────────────────────────────────────────
+  // 改密碼後房間內所有人被踢(token 失效)、訊息 log 清空(避免解密失敗)
+  if (p === '/admin/change-password' && req.method === 'POST') {
+    if (!isAdmin(req)) return sendJson(res, 401, { ok:false, error:'未授權' });
+    try {
+      const { roomId } = await readJsonBody(req);
+      const room = rooms.get(roomId);
+      if (!room) return sendJson(res, 404, { ok:false, error:'房間不存在' });
+      // 產生新密碼
+      const newPwd = generateRoomPassword(12);
+      room.password = newPwd;
+      room.passwordHash = hashPassword(newPwd);
+      // 踢出所有線上使用者:刪除對應 tokens,讓他們下次 poll 收到 401
+      for (const [t, td] of tokens) {
+        if (td.roomId === roomId) tokens.delete(t);
+      }
+      // 清空房間狀態:log、seq、clients
+      room.clients.clear();
+      room.log = [];
+      room.seq = 0;
+      // 喚醒所有 waiters(回傳空陣列,他們會再 poll 一次就收到 401)
+      const waiters = room.waiters;
+      room.waiters = [];
+      for (const w of waiters) {
+        try { clearTimeout(w.timer); } catch(e) {}
+        try {
+          w.res.writeHead(401, {'Content-Type': 'application/json'});
+          w.res.end(JSON.stringify({ ok:false, error:'房間密碼已變更' }));
+        } catch(e) {}
+      }
+      return sendJson(res, 200, { ok:true, password: newPwd });
+    } catch(e) { return sendJson(res, 400, { ok:false, error:'請求格式錯誤' }); }
+  }
+
+  // ─── Admin:刪除房間 ──────────────────────────────────────────────
+  // 廣播 roomDeleted 事件讓 client 自動跳回登入畫面,接著刪掉房間本身
+  if (p === '/admin/delete-room' && req.method === 'POST') {
+    if (!isAdmin(req)) return sendJson(res, 401, { ok:false, error:'未授權' });
+    try {
+      const { roomId } = await readJsonBody(req);
+      const room = rooms.get(roomId);
+      if (!room) return sendJson(res, 404, { ok:false, error:'房間不存在' });
+      // 先廣播 roomDeleted 事件(這會喚醒 waiters 回傳此事件)
+      appendEvent(room.id, { type: 'roomDeleted' });
+      // 刪除對應 tokens
+      for (const [t, td] of tokens) {
+        if (td.roomId === roomId) tokens.delete(t);
+      }
+      // 給 waiters 一點時間送出(雖然 appendEvent 裡已經 flush 了),然後刪房間
+      setImmediate(() => {
+        rooms.delete(roomId);
+      });
+      return sendJson(res, 200, { ok:true });
     } catch(e) { return sendJson(res, 400, { ok:false, error:'請求格式錯誤' }); }
   }
 
@@ -1119,10 +1343,11 @@ const server = http.createServer(async (req, res) => {
       const nick = cleaned || ('user_' + crypto.randomBytes(3).toString('hex'));
       const token = crypto.randomBytes(16).toString('hex');
       const clientId = crypto.randomBytes(8).toString('hex');
-      tokens.set(token, { nick, roomId: room.id, clientId, exp: Date.now() + 3600000 });
+      tokens.set(token, { nick, roomId: room.id, clientId });  // 無 exp:只有離開/reap/admin踢/重啟才失效
       return sendJson(res, 200, {
         ok:true, token, nick, clientId,
-        since: room.seq, burnDuration: room.burnDuration
+        since: room.seq, burnDuration: room.burnDuration,
+        nicks: roomNicks(room)  // 初始化 roster
       });
     } catch(e) { return sendJson(res, 400, { ok:false, error:'請求格式錯誤' }); }
   }
@@ -1134,7 +1359,7 @@ const server = http.createServer(async (req, res) => {
     const token = url.searchParams.get('token');
     const since = parseInt(url.searchParams.get('since') || '0');
     const tokenData = tokens.get(token);
-    if (!tokenData || Date.now() > tokenData.exp) return sendJson(res, 401, { ok:false, error:'token 失效' });
+    if (!tokenData) return sendJson(res, 401, { ok:false, error:'token 失效' });
     const room = rooms.get(tokenData.roomId);
     if (!room) return sendJson(res, 404, { ok:false, error:'房間不存在' });
     // 標記這個 client 還活著(用於線上偵測)
@@ -1143,6 +1368,11 @@ const server = http.createServer(async (req, res) => {
       appendEvent(room.id, {
         type: 'system',
         text: '🔥 ' + tokenData.nick + ' 已加入房間(線上:' + room.clients.size + ')'
+      });
+      appendEvent(room.id, {
+        type: 'presenceChange',
+        onlineCount: room.clients.size,
+        nicks: roomNicks(room)
       });
     }
     // 有已累積的新事件就立刻回
@@ -1178,7 +1408,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const { token } = body;
       const tokenData = tokens.get(token);
-      if (!tokenData || Date.now() > tokenData.exp) return sendJson(res, 401, { ok:false, error:'token 失效' });
+      if (!tokenData) return sendJson(res, 401, { ok:false, error:'token 失效' });
       const room = rooms.get(tokenData.roomId);
       if (!room) return sendJson(res, 404, { ok:false, error:'房間不存在' });
       const { nick } = tokenData;
@@ -1205,15 +1435,20 @@ const server = http.createServer(async (req, res) => {
       } else if (body.type === 'leave') {
         // 明確離開 (beforeunload)
         if (room.clients.delete(tokenData.clientId)) {
+          tokens.delete(token);  // 離開時一併失效 token
           appendEvent(room.id, {
             type: 'system',
             text: '🔥 ' + nick + ' 已離開(線上:' + room.clients.size + ')'
           });
           appendEvent(room.id, {
             type: 'presenceChange',
-            onlineCount: room.clients.size
+            onlineCount: room.clients.size,
+            nicks: roomNicks(room)
           });
         }
+        return sendJson(res, 200, { ok:true });
+      } else if (body.type === 'heartbeat') {
+        // touchClient 已在上面執行了,這裡只需要回 ok
         return sendJson(res, 200, { ok:true });
       }
       return sendJson(res, 400, { ok:false, error:'未知的 type' });
@@ -1299,11 +1534,21 @@ header.topbar .logout:hover{border-color:#ff4444;color:#ff4444}
 .room-body label{color:var(--dim);font-size:10px;letter-spacing:1px}
 .room-body code{background:#050505;border:1px solid #1a1a1a;padding:4px 8px;border-radius:3px;font-family:inherit;font-size:11px;color:#ffd700;word-break:break-all;display:inline-block}
 .room-body code.url{color:var(--accent2);font-size:10px}
+.members{margin-bottom:12px;display:flex;flex-direction:column;gap:6px}
+.members label{color:var(--dim);font-size:10px;letter-spacing:1px}
+.member-list{display:flex;flex-wrap:wrap;gap:6px}
+.member-chip{display:inline-flex;align-items:center;gap:4px;background:#0a1a0a;border:1px solid #1a3a1a;color:#88ffbb;padding:3px 4px 3px 10px;border-radius:12px;font-size:11px}
+.btn-kick{background:transparent;border:none;color:#ff4444;cursor:pointer;padding:2px 6px;border-radius:50%;font-size:11px;line-height:1;transition:.15s}
+.btn-kick:hover{background:#ff4444;color:white}
 .room-actions{display:flex;gap:8px;flex-wrap:wrap}
 .room-actions button,.room-actions a{background:transparent;color:var(--accent);border:1px solid var(--accent);padding:6px 14px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;text-decoration:none;display:inline-block;letter-spacing:1px;transition:.15s}
 .room-actions button:hover,.room-actions a:hover{background:var(--accent);color:white}
 .room-actions .btn-primary{background:var(--purple);border-color:var(--purple);color:white}
 .room-actions .btn-primary:hover{background:#9333ea;border-color:#9333ea}
+.room-actions .btn-warn{color:#ffb347;border-color:#ffb347}
+.room-actions .btn-warn:hover{background:#ffb347;color:#1a0a00}
+.room-actions .btn-danger{color:#ff4444;border-color:#ff4444}
+.room-actions .btn-danger:hover{background:#ff4444;color:white}
 
 #empty{text-align:center;color:var(--dim);padding:60px 20px;font-size:13px}
 
@@ -1480,6 +1725,33 @@ function renderRooms(rooms){
     });
     card.appendChild(body);
 
+    // 在線成員列表 + 踢人按鈕
+    if (r.clients && r.clients.length > 0) {
+      const membersWrap = document.createElement('div');
+      membersWrap.className = 'members';
+      const label = document.createElement('label');
+      label.textContent = '在線成員';
+      membersWrap.appendChild(label);
+      const memList = document.createElement('div');
+      memList.className = 'member-list';
+      r.clients.forEach(c => {
+        const chip = document.createElement('span');
+        chip.className = 'member-chip';
+        const nickSpan = document.createElement('span');
+        nickSpan.textContent = c.nick;
+        chip.appendChild(nickSpan);
+        const kickBtn = document.createElement('button');
+        kickBtn.className = 'btn-kick';
+        kickBtn.title = '踢出 ' + c.nick;
+        kickBtn.textContent = '✕';
+        kickBtn.addEventListener('click', () => kickClient(r.id, c.clientId, c.nick));
+        chip.appendChild(kickBtn);
+        memList.appendChild(chip);
+      });
+      membersWrap.appendChild(memList);
+      card.appendChild(membersWrap);
+    }
+
     // 操作按鈕
     const actions = document.createElement('div');
     actions.className = 'room-actions';
@@ -1501,6 +1773,20 @@ function renderRooms(rooms){
     link.textContent = '↗ 開啟房間';
     actions.appendChild(link);
 
+    // 改密碼
+    const btnChangePwd = document.createElement('button');
+    btnChangePwd.className = 'btn-warn';
+    btnChangePwd.textContent = '🔑 改密碼';
+    btnChangePwd.addEventListener('click', () => changePassword(r.id, r.name));
+    actions.appendChild(btnChangePwd);
+
+    // 刪除房間
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'btn-danger';
+    btnDelete.textContent = '🗑️ 刪除';
+    btnDelete.addEventListener('click', () => deleteRoom(r.id, r.name));
+    actions.appendChild(btnDelete);
+
     card.appendChild(actions);
     list.appendChild(card);
   });
@@ -1521,6 +1807,61 @@ async function createRoom(){
       refreshRooms();
     } else {
       showToast('❌ ' + (d.error || '建立失敗'), true);
+    }
+  } catch(e){}
+}
+
+async function kickClient(roomId, clientId, nick){
+  if (!confirm('確定要踢出 ' + nick + ' 嗎?\\n(他可以立即以相同密碼重新進入)')) return;
+  try {
+    const d = await apiCall('/admin/kick', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({roomId, clientId})
+    });
+    if (d.ok) {
+      showToast('✓ 已踢出 ' + nick);
+      refreshRooms();
+    } else {
+      showToast('❌ ' + (d.error || '踢出失敗'), true);
+    }
+  } catch(e){}
+}
+
+async function changePassword(roomId, name){
+  if (!confirm('確定要更換 "' + name + '" 的密碼嗎?\\n\\n' +
+               '這會:\\n' +
+               '• 踢出房間內所有人\\n' +
+               '• 清空所有訊息記錄\\n' +
+               '• 自動產生新的隨機密碼')) return;
+  try {
+    const d = await apiCall('/admin/change-password', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({roomId})
+    });
+    if (d.ok) {
+      showToast('✓ 已更新密碼:' + d.password);
+      refreshRooms();
+    } else {
+      showToast('❌ ' + (d.error || '改密碼失敗'), true);
+    }
+  } catch(e){}
+}
+
+async function deleteRoom(roomId, name){
+  if (!confirm('確定要刪除 "' + name + '" 嗎?\\n\\n' +
+               '• 所有線上使用者會立即斷線\\n' +
+               '• 所有訊息紀錄消失\\n' +
+               '• 此動作不可復原')) return;
+  try {
+    const d = await apiCall('/admin/delete-room', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({roomId})
+    });
+    if (d.ok) {
+      showToast('✓ 已刪除房間 "' + name + '"');
+      refreshRooms();
+    } else {
+      showToast('❌ ' + (d.error || '刪除失敗'), true);
     }
   } catch(e){}
 }
@@ -1602,6 +1943,12 @@ h1{font-size:15px;color:var(--accent2);letter-spacing:2px}
 #online{margin-left:auto;font-size:11px;color:var(--dim)}
 #notice{background:#0d0200;border-bottom:1px solid #1e0a00;padding:6px 20px;font-size:11px;color:#ff4500;opacity:.7;text-align:center}
 
+#roster{background:#0a0503;border-bottom:1px solid #2a1a00;padding:6px 20px;font-size:11px;color:var(--dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#roster .roster-toggle{cursor:pointer;color:var(--accent);user-select:none;padding:2px 6px;border:1px solid #2a1a00;border-radius:3px}
+#roster .roster-toggle:hover{background:#1a0a00}
+#roster .roster-list{flex:1;line-height:1.6}
+#roster.collapsed .roster-list{display:none}
+
 #burn-bar{background:#0f0a05;border-bottom:1px solid #2a1a00;padding:8px 20px;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);flex-wrap:wrap}
 #burn-bar label{color:var(--accent2);font-weight:bold}
 #burn-bar input[type=number]{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;width:70px;border-radius:3px;font-family:inherit;font-size:12px;outline:none;text-align:center}
@@ -1642,6 +1989,9 @@ button:hover{background:var(--accent2)}
 .msg.burning{animation:flicker .5s infinite}
 .msg.burning .bubble{box-shadow:0 0 8px rgba(255,69,0,.4)}
 .msg.unread .bubble{border-left:3px solid var(--accent)}
+/* 反黑遮罩:未 focus 或分頁背景時,訊息文字顯示為 █████ */
+#msgs.redacted .msg:not(.sys) .bubble .text-content{font-size:0}
+#msgs.redacted .msg:not(.sys) .bubble .text-content::before{content:attr(data-mask);font-size:14px;color:var(--dim);opacity:.6;letter-spacing:-2px}
 @keyframes flicker{0%,100%{opacity:1}50%{opacity:.65}}
 #input{display:flex;gap:8px;padding:12px 20px;background:var(--bg2);border-top:1px solid var(--border)}
 #input input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:4px;font-family:inherit;font-size:13px;outline:none}
@@ -1669,6 +2019,10 @@ button:hover{background:var(--accent2)}
   <span id="online">● 連線中...</span>
 </div>
 <div id="notice">焚後即毀模式 — 訊息不會落地儲存</div>
+<div id="roster" class="collapsed">
+  <span class="roster-toggle" onclick="toggleRoster()"></span>
+  <span class="roster-list"></span>
+</div>
 <div id="burn-bar">
   <label>🔥 訊息存活時間:</label>
   <input type="number" id="burnSec" min="0" max="3600" value="30" />
@@ -1700,6 +2054,14 @@ const msgReads = {}, sentReads = {};
 // 別人的訊息 → 等我 focus 輸入框才燒
 // 自己的訊息 → 等所有人都讀過才燒 (readersNeeded 人次)
 const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
+// 線上名單 + UI 狀態
+let roster = [];                // 當下線上使用者 nick 陣列
+let rosterExpanded = false;     // 使用者手動切換
+const ROSTER_COLLAPSE_THRESHOLD = 6;  // 超過這個人數預設折疊
+// 聊天可見性:需要 (input focused) AND (document 在前景)
+let inputFocused = false;
+let heartbeatTimer = null;
+const HEARTBEAT_INTERVAL = 15000;  // 15 秒 heartbeat
 const HOST = location.host;
 
 // ─── E2E 加密 (AES-256-GCM, key 派生自房間密碼) ───
@@ -1960,6 +2322,7 @@ function updateTitle(){
 }
 document.addEventListener('visibilitychange', () => {
   if(!document.hidden && unreadCount > 0){ unreadCount = 0; updateTitle(); }
+  updateChatVisibility();
 });
 
 function auth() {
@@ -1991,6 +2354,14 @@ function auth() {
         const bs = document.getElementById('burnSec');
         if (bs) bs.value = burnDuration;
       }
+      // 初始化 roster(從 /auth 回應拿到當下的 nick 清單)
+      roster = Array.isArray(d.nicks) ? d.nicks.slice() : [];
+      rosterExpanded = false;
+      renderRoster();
+      // 預設遮罩(還沒 focus 輸入框)
+      updateChatVisibility();
+      // 啟動 heartbeat
+      startHeartbeat();
       document.getElementById('me-label').textContent = '@' + nick;
       document.getElementById('auth').style.display = 'none';
       startPolling();
@@ -2036,7 +2407,7 @@ async function startPolling() {
       const r = await fetch(url, opts);
       if (r.status === 401 || r.status === 404) {
         polling = false;
-        onDisconnected('驗證失效,請重新登入');
+        resetToLogin('連線逾時或已被管理員移除,請重新登入');
         return;
       }
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -2083,7 +2454,14 @@ async function handleEvent(d) {
     if (d.reader !== nick) tickMineReaders(d.msgId);
   }
   else if (d.type === 'presenceChange') {
+    if (Array.isArray(d.nicks)) {
+      roster = d.nicks.slice();
+      renderRoster();
+    }
     onPresenceChange(d.onlineCount);
+  }
+  else if (d.type === 'roomDeleted') {
+    resetToLogin('此房間已被管理員刪除');
   }
 }
 
@@ -2098,6 +2476,85 @@ async function apiSend(payload) {
     });
     return r.ok;
   } catch(e) { return false; }
+}
+
+// ─── 線上名單(roster) ──────────────────────────────────────────────
+function renderRoster() {
+  const el = document.getElementById('roster');
+  if (!el) return;
+  const list = el.querySelector('.roster-list');
+  const toggle = el.querySelector('.roster-toggle');
+  const n = roster.length;
+  // 超過門檻 + 使用者沒展開 → 折疊
+  const shouldCollapse = n > ROSTER_COLLAPSE_THRESHOLD && !rosterExpanded;
+  if (shouldCollapse) {
+    el.classList.add('collapsed');
+    toggle.textContent = '▼ 展開 ' + n + ' 人';
+  } else {
+    el.classList.remove('collapsed');
+    toggle.textContent = n > ROSTER_COLLAPSE_THRESHOLD ? '▲ 收合' : '👥';
+    list.textContent = '線上 (' + n + '):' + roster.join(', ');
+  }
+}
+function toggleRoster() {
+  rosterExpanded = !rosterExpanded;
+  renderRoster();
+}
+
+// ─── 聊天顯示 / 遮罩邏輯 ──────────────────────────────────────────────
+function updateChatVisibility() {
+  const msgsEl = document.getElementById('msgs');
+  if (!msgsEl) return;
+  const visible = inputFocused && !document.hidden;
+  if (visible) {
+    msgsEl.classList.remove('redacted');
+  } else {
+    msgsEl.classList.add('redacted');
+  }
+}
+
+// ─── Heartbeat ─────────────────────────────────────────────────────
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    apiSend({ type: 'heartbeat' });
+  }, HEARTBEAT_INTERVAL);
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// ─── 重置到登入畫面(被 reap / admin 踢 / 401) ───────────────────────
+function resetToLogin(reason) {
+  // 停止各種迴圈
+  stopPolling();
+  stopHeartbeat();
+  // 清本地狀態
+  authToken = null; nick = ''; clientId = null; cryptoKey = null;
+  sinceSeq = 0;
+  roster = []; rosterExpanded = false;
+  pendingBurn.clear();
+  for (const k in msgReads) delete msgReads[k];
+  for (const k in sentReads) delete sentReads[k];
+  unreadCount = 0; updateTitle();
+  // 清 DOM
+  const msgsEl = document.getElementById('msgs');
+  if (msgsEl) { msgsEl.innerHTML = ''; msgsEl.classList.remove('redacted'); }
+  renderRoster();
+  // 顯示登入 overlay
+  const authEl = document.getElementById('auth');
+  if (authEl) authEl.style.display = 'flex';
+  const err = document.getElementById('err');
+  if (err && reason) { err.textContent = '⚠ ' + reason; setTimeout(() => err.textContent = '', 4000); }
+  // disable 訊息輸入
+  const mi = document.getElementById('mi');
+  if (mi) { mi.disabled = true; mi.placeholder = '請先登入'; mi.value = ''; }
+  // 連線狀態
+  const online = document.getElementById('online');
+  if (online) { online.textContent = '● 連線中...'; online.style.color = ''; }
+  // focus 登入名稱欄位
+  const nickInput = document.getElementById('nickInput');
+  if (nickInput) nickInput.focus();
 }
 
 function applyBurn(){
@@ -2147,7 +2604,12 @@ function addMsg(sender, text, isMe, msgId, expectedReaders){
   const d = document.createElement('div');
   d.className = 'msg ' + (isMe ? 'me' : 'other');
   if(msgId) d.setAttribute('data-msg-id', msgId);
-  d.innerHTML = '<div class="sender">' + escHtml(sender) + '</div><div class="bubble">' + escHtml(text) + '</div>';
+  // 產生遮罩字串:依文字長度產生 █ 序列(最短 4 塊,最長 30 塊)
+  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2)));
+  const mask = '█'.repeat(maskLen);
+  d.innerHTML = '<div class="sender">' + escHtml(sender) +
+    '</div><div class="bubble"><span class="text-content" data-mask="' + mask + '">' +
+    escHtml(text) + '</span></div>';
   m.appendChild(d); m.scrollTop = m.scrollHeight;
 
   // 倒數觸發邏輯
@@ -2217,7 +2679,7 @@ function addSys(t){
   const m = document.getElementById('msgs');
   const d = document.createElement('div'); d.className = 'msg sys'; d.textContent = t;
   m.appendChild(d); m.scrollTop = m.scrollHeight;
-  scheduleBurn(d);
+  // 系統訊息永不焚毀
 }
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 async function send(){
@@ -2252,6 +2714,7 @@ window.addEventListener('beforeunload', () => {
     }
   } catch(e) {}
   stopPolling();
+  stopHeartbeat();
 });
 
 // 初始狀態:輸入框 disable 直到連線成功
@@ -2261,7 +2724,15 @@ window.addEventListener('beforeunload', () => {
 })();
 
 document.getElementById('mi').addEventListener('keydown', e => { if(e.key === 'Enter') send(); });
-document.getElementById('mi').addEventListener('focus', onUserRead);
+document.getElementById('mi').addEventListener('focus', () => {
+  inputFocused = true;
+  updateChatVisibility();
+  onUserRead();
+});
+document.getElementById('mi').addEventListener('blur', () => {
+  inputFocused = false;
+  updateChatVisibility();
+});
 document.getElementById('nickInput').addEventListener('keydown', e => { if(e.key === 'Enter') document.getElementById('pwd').focus(); });
 document.getElementById('pwd').addEventListener('keydown', e => { if(e.key === 'Enter') auth(); });
 document.getElementById('burnSec').addEventListener('keydown', e => { if(e.key === 'Enter') applyBurn(); });
@@ -2448,6 +2919,14 @@ function getWebviewContent(serverUrl) {
                transition: opacity .2s, transform .1s; padding: 2px 6px; border-radius: 3px; }
   .sound-btn:hover { opacity: 1; transform: scale(1.15); background: rgba(255,69,0,.1); }
   #status { font-size: 11px; color: #666; margin-left: auto; }
+  #roster { background: #0a0503; border-bottom: 1px solid #2a1a00;
+            padding: 5px 16px; font-size: 11px; color: #888;
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  #roster .roster-toggle { cursor: pointer; color: #ff4500; user-select: none;
+                           padding: 1px 6px; border: 1px solid #2a1a00; border-radius: 2px; }
+  #roster .roster-toggle:hover { background: #1a0a00; }
+  #roster .roster-list { flex: 1; line-height: 1.5; }
+  #roster.collapsed .roster-list { display: none; }
   #burn-bar { background: #0f0a05; border-bottom: 1px solid #2a1a00;
               padding: 6px 16px; display: flex; align-items: center; gap: 8px;
               font-size: 11px; color: #888; flex-wrap: wrap; }
@@ -2472,6 +2951,11 @@ function getWebviewContent(serverUrl) {
   .msg.mine .countdown { text-align: right; }
   .msg.burning { animation: flicker .6s infinite; }
   .msg.unread { border-left: 3px solid #ff4500; padding-left: 9px; }
+  /* 反黑遮罩:未 focus 或分頁背景時,訊息文字顯示為 █████ */
+  #messages.redacted .msg:not(.system) .text-content { font-size: 0; }
+  #messages.redacted .msg:not(.system) .text-content::before {
+    content: attr(data-mask); font-size: 12px; color: #888; opacity: .6; letter-spacing: -2px;
+  }
   @keyframes flicker { 0%,100%{opacity:1} 50%{opacity:.6} }
   #input-area { display: flex; gap: 8px; padding: 12px 16px; background: #111; }
   #input-area input { flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0;
@@ -2507,6 +2991,10 @@ function getWebviewContent(serverUrl) {
   <span id="sound-btn" class="sound-btn" onclick="toggleSound()">🔔</span>
   <span id="status">Connecting...</span>
 </div>
+<div id="roster" class="collapsed" style="display:none">
+  <span class="roster-toggle" onclick="toggleRoster()"></span>
+  <span class="roster-list"></span>
+</div>
 <div id="burn-bar" style="display:none">
   <label>Burn after:</label>
   <input type="number" id="burn-sec" min="0" max="3600" value="30" />
@@ -2535,6 +3023,13 @@ let cryptoKey = null;
 const msgReads = {}, sentReads = {};
 // 訊息暫存:等 focus 輸入框(別人訊息)或湊齊所有讀者(自己訊息)才開始倒數
 const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
+// 線上名單 + UI 狀態
+let roster = [];
+let rosterExpanded = false;
+const ROSTER_COLLAPSE_THRESHOLD = 6;
+let inputFocused = false;
+let heartbeatTimer = null;
+const HEARTBEAT_INTERVAL = 15000;
 const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
 
 // ─── E2E 加密 (AES-256-GCM) — WebCrypto + 純 JS fallback ───
@@ -2811,10 +3306,18 @@ function authenticate() {
         const bs = document.getElementById('burn-sec');
         if(bs) bs.value = burnDuration;
       }
+      // Initialize roster
+      roster = Array.isArray(data.nicks) ? data.nicks.slice() : [];
+      rosterExpanded = false;
+      renderRoster();
+      // Start redacted by default (not focused yet)
+      updateChatVisibility();
+      startHeartbeat();
       document.getElementById('me-label').textContent = '@' + nick;
       document.getElementById('auth-overlay').style.display = 'none';
-      ['header','burn-bar','messages','input-area'].forEach(id => {
-        document.getElementById(id).style.display = (id === 'messages' || id === 'burn-bar') ? 'flex' : '';
+      ['header','roster','burn-bar','messages','input-area'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.style.display = (id === 'messages' || id === 'burn-bar' || id === 'roster') ? 'flex' : '';
       });
       onConnected();
       startPolling();
@@ -2853,7 +3356,7 @@ async function startPolling(){
       const r = await fetch(url, opts);
       if(r.status === 401 || r.status === 404){
         polling = false;
-        onDisconnected('Session expired, please re-login');
+        resetToLogin('Disconnected or kicked by admin, please re-login');
         return;
       }
       if(!r.ok) throw new Error('HTTP ' + r.status);
@@ -2897,7 +3400,14 @@ async function handleEvent(d){
     if(d.reader !== nick) tickMineReaders(d.msgId);
   }
   else if(d.type === 'presenceChange'){
+    if(Array.isArray(d.nicks)){
+      roster = d.nicks.slice();
+      renderRoster();
+    }
     onPresenceChange(d.onlineCount);
+  }
+  else if(d.type === 'roomDeleted'){
+    resetToLogin('This room has been deleted by admin');
   }
 }
 
@@ -2911,6 +3421,75 @@ async function apiSend(payload){
     });
     return r.ok;
   } catch(e){ return false; }
+}
+
+// ─── Roster ──────────────────────────────────────────────
+function renderRoster() {
+  const el = document.getElementById('roster');
+  if(!el) return;
+  const list = el.querySelector('.roster-list');
+  const toggle = el.querySelector('.roster-toggle');
+  const n = roster.length;
+  const shouldCollapse = n > ROSTER_COLLAPSE_THRESHOLD && !rosterExpanded;
+  if(shouldCollapse){
+    el.classList.add('collapsed');
+    toggle.textContent = '▼ Show ' + n + ' online';
+  } else {
+    el.classList.remove('collapsed');
+    toggle.textContent = n > ROSTER_COLLAPSE_THRESHOLD ? '▲ Hide' : '👥';
+    list.textContent = 'Online (' + n + '): ' + roster.join(', ');
+  }
+}
+function toggleRoster() {
+  rosterExpanded = !rosterExpanded;
+  renderRoster();
+}
+
+// ─── Chat redaction ──────────────────────────────────────
+function updateChatVisibility() {
+  const msgsEl = document.getElementById('messages');
+  if(!msgsEl) return;
+  const visible = inputFocused && !document.hidden;
+  if(visible) msgsEl.classList.remove('redacted');
+  else msgsEl.classList.add('redacted');
+}
+
+// ─── Heartbeat ───────────────────────────────────────────
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => { apiSend({ type: 'heartbeat' }); }, HEARTBEAT_INTERVAL);
+}
+function stopHeartbeat() {
+  if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// ─── Reset to login ──────────────────────────────────────
+function resetToLogin(reason) {
+  stopPolling();
+  stopHeartbeat();
+  authToken = null; nick = ''; clientId = null; cryptoKey = null;
+  sinceSeq = 0;
+  roster = []; rosterExpanded = false;
+  pendingBurn.clear();
+  for(const k in msgReads) delete msgReads[k];
+  for(const k in sentReads) delete sentReads[k];
+  unreadCount = 0; updateTitle();
+  const msgsEl = document.getElementById('messages');
+  if(msgsEl){ msgsEl.innerHTML = ''; msgsEl.classList.remove('redacted'); msgsEl.style.display = 'none'; }
+  const rosterEl = document.getElementById('roster');
+  if(rosterEl) rosterEl.style.display = 'none';
+  const burnBar = document.getElementById('burn-bar');
+  if(burnBar) burnBar.style.display = 'none';
+  const inputArea = document.getElementById('input-area');
+  if(inputArea) inputArea.style.display = 'none';
+  const authOverlay = document.getElementById('auth-overlay');
+  if(authOverlay) authOverlay.style.display = 'flex';
+  const err = document.getElementById('auth-err');
+  if(err && reason){ err.textContent = '⚠ ' + reason; setTimeout(() => err.textContent = '', 4000); }
+  const st = document.getElementById('status');
+  if(st){ st.textContent = 'Connecting...'; st.style.color = ''; }
+  const nickInput = document.getElementById('nick-input');
+  if(nickInput) nickInput.focus();
 }
 
 function updateBurn() {
@@ -2982,7 +3561,15 @@ function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
   div.className = 'msg ' + (isMine ? 'mine' : 'other');
   if(msgId) div.setAttribute('data-msg-id', msgId);
   const s = document.createElement('div'); s.className = 'sender'; s.textContent = sender; div.appendChild(s);
-  const t = document.createElement('div'); t.textContent = text; div.appendChild(t);
+  // 文字包一層 .text-content 讓 redacted 狀態下能用 ::before 顯示 █ 遮罩
+  const t = document.createElement('div');
+  const inner = document.createElement('span');
+  inner.className = 'text-content';
+  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2)));
+  inner.setAttribute('data-mask', '█'.repeat(maskLen));
+  inner.textContent = text;
+  t.appendChild(inner);
+  div.appendChild(t);
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 
   // Burn timing:
@@ -3051,7 +3638,7 @@ function addSysMsg(text) {
   const msgs = document.getElementById('messages');
   const d = document.createElement('div'); d.className = 'msg system'; d.textContent = text;
   msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-  scheduleBurn(d);
+  // 系統訊息永不焚毀 (不呼叫 scheduleBurn)
 }
 
 window.addEventListener('beforeunload', () => {
@@ -3063,13 +3650,23 @@ window.addEventListener('beforeunload', () => {
     }
   } catch(e){}
   stopPolling();
+  stopHeartbeat();
 });
 
 document.addEventListener('visibilitychange', () => {
   if(!document.hidden && unreadCount > 0){ unreadCount = 0; updateTitle(); }
+  updateChatVisibility();
 });
 document.getElementById('msg-input')?.addEventListener('keydown', e => { if(e.key === 'Enter') sendMsg(); });
-document.getElementById('msg-input')?.addEventListener('focus', onUserRead);
+document.getElementById('msg-input')?.addEventListener('focus', () => {
+  inputFocused = true;
+  updateChatVisibility();
+  onUserRead();
+});
+document.getElementById('msg-input')?.addEventListener('blur', () => {
+  inputFocused = false;
+  updateChatVisibility();
+});
 document.getElementById('nick-input')?.addEventListener('keydown', e => {
   if(e.key === 'Enter') document.getElementById('pwd-input').focus();
 });
