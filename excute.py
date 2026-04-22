@@ -267,6 +267,20 @@ function getWebviewContent(serverUrl) {
                       padding: 8px 12px; border-radius: 3px; font-size: 12px; outline: none; }
   #input-area button { background: #ff4500; color: white; border: none;
                        padding: 8px 16px; border-radius: 3px; cursor: pointer; }
+  #clean-toggle { background: transparent !important; border: 1px solid #333 !important;
+                  color: #888 !important; cursor: pointer; padding: 8px 10px !important;
+                  border-radius: 3px; font-size: 14px; flex-shrink: 0; transition: .15s; }
+  #clean-toggle:hover { background: #1a0a00 !important; border-color: #ff4500 !important; }
+  #clean-toggle.active { color: #ff4500 !important; border-color: #ff4500 !important;
+                         background: rgba(255,69,0,.1) !important; }
+  /* 乾淨版:隱藏 header/roster/sys-log/burn-bar,保留訊息區與輸入列 */
+  body.clean-mode #header,
+  body.clean-mode #roster,
+  body.clean-mode #sys-log,
+  body.clean-mode #burn-bar { display: none !important; }
+  body.clean-mode #msg-input::placeholder { color: transparent; }
+  body.clean-mode #send-btn { font-size: 0; padding: 8px 14px; }
+  body.clean-mode #send-btn::after { content: '→'; font-size: 16px; }
   #auth-overlay { position: fixed; inset: 0; background: #0d0d0d;
                   display: flex; align-items: center; justify-content: center;
                   flex-direction: column; gap: 12px; z-index: 100; }
@@ -315,8 +329,9 @@ function getWebviewContent(serverUrl) {
 </div>
 <div id="messages" style="display:none"></div>
 <div id="input-area" style="display:none">
+  <button id="clean-toggle" class="clean-btn" onclick="toggleCleanMode()" title="切換乾淨版">👁️</button>
   <input type="text" id="msg-input" placeholder="輸入訊息..." />
-  <button onclick="sendMsg()">發送</button>
+  <button id="send-btn" onclick="sendMsg()">發送</button>
 </div>
 
 <script>
@@ -343,6 +358,7 @@ const ROSTER_COLLAPSE_THRESHOLD = 6;
 const sysMsgs = [];
 const MAX_SYS_MSGS = 10;
 let sysExpanded = false;
+let cleanMode = false;  // 乾淨版(本地狀態,不發給 server)
 let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;
@@ -816,6 +832,29 @@ function toggleSysLog() {
   renderSysLog();
 }
 
+// 乾淨版(本地狀態):隱藏 header/notice/roster/sys-log/burn-bar,只保留訊息區與輸入列
+function toggleCleanMode() {
+  cleanMode = !cleanMode;
+  const btn = document.getElementById('clean-toggle');
+  const input = document.getElementById('msg-input');
+  if (cleanMode) {
+    document.body.classList.add('clean-mode');
+    if (btn) btn.classList.add('active');
+    if (input) {
+      input.dataset.originalPlaceholder = input.placeholder || '';
+      input.placeholder = '';
+    }
+  } else {
+    document.body.classList.remove('clean-mode');
+    if (btn) btn.classList.remove('active');
+    if (input && input.dataset.originalPlaceholder !== undefined) {
+      input.placeholder = input.dataset.originalPlaceholder;
+    } else if (input) {
+      input.placeholder = '輸入訊息...';
+    }
+  }
+}
+
 // ─── 聊天遮罩 ─────────────────────────────────────────────
 function updateChatVisibility() {
   const msgsEl = document.getElementById('messages');
@@ -842,6 +881,11 @@ function resetToLogin(reason) {
   sinceSeq = 0;
   roster = []; rosterExpanded = false;
   sysMsgs.length = 0; sysExpanded = false;
+  // 解除乾淨版(不然登入畫面被 clean-mode 蓋住)
+  cleanMode = false;
+  document.body.classList.remove('clean-mode');
+  const cleanBtn = document.getElementById('clean-toggle');
+  if (cleanBtn) cleanBtn.classList.remove('active');
   pendingBurn.clear();
   for (const k in msgReads) delete msgReads[k];
   for (const k in sentReads) delete sentReads[k];
@@ -2077,6 +2121,18 @@ button:hover{background:var(--accent2)}
 #input input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:4px;font-family:inherit;font-size:13px;outline:none}
 #input input:focus{border-color:var(--accent)}
 #input button{padding:8px 20px;width:auto;letter-spacing:0}
+#clean-toggle{background:transparent;border:1px solid var(--border);color:var(--dim);cursor:pointer;padding:8px 12px;border-radius:4px;font-size:14px;flex-shrink:0;transition:.15s}
+#clean-toggle:hover{background:var(--bg);border-color:var(--accent)}
+#clean-toggle.active{color:var(--accent);border-color:var(--accent);background:rgba(255,69,0,.1)}
+/* 乾淨版:隱藏 header/notice/roster/sys-log/burn-bar,保留 #msgs 與輸入列 */
+body.clean-mode #header,
+body.clean-mode #notice,
+body.clean-mode #roster,
+body.clean-mode #sys-log,
+body.clean-mode #burn-bar{display:none !important}
+body.clean-mode #mi::placeholder{color:transparent}
+body.clean-mode #send-btn{font-size:0;padding:8px 14px}
+body.clean-mode #send-btn::after{content:'→';font-size:16px}
 .err{color:#ff4444;font-size:12px;text-align:center;min-height:16px}
 </style>
 </head>
@@ -2124,8 +2180,9 @@ button:hover{background:var(--accent2)}
 </div>
 <div id="msgs"></div>
 <div id="input">
+  <button id="clean-toggle" class="clean-btn" onclick="toggleCleanMode()" title="切換乾淨版">👁️</button>
   <input type="text" id="mi" placeholder="輸入訊息(Enter 發送)..." />
-  <button onclick="send()">發送</button>
+  <button id="send-btn" onclick="send()">發送</button>
 </div>
 <script>
 const ROOM_ID = '${roomId}';
@@ -2149,6 +2206,7 @@ const ROSTER_COLLAPSE_THRESHOLD = 6;  // 超過這個人數預設折疊
 const sysMsgs = [];
 const MAX_SYS_MSGS = 10;
 let sysExpanded = false;
+let cleanMode = false;  // 乾淨版(本地狀態,不發給 server)
 // 聊天可見性:需要 (input focused) AND (document 在前景)
 let inputFocused = false;
 let heartbeatTimer = null;
@@ -2631,6 +2689,29 @@ function toggleSysLog() {
   renderSysLog();
 }
 
+// 乾淨版(本地狀態):隱藏 header/notice/roster/sys-log/burn-bar,只保留訊息區與輸入列
+function toggleCleanMode() {
+  cleanMode = !cleanMode;
+  const btn = document.getElementById('clean-toggle');
+  const input = document.getElementById('mi');
+  if (cleanMode) {
+    document.body.classList.add('clean-mode');
+    if (btn) btn.classList.add('active');
+    if (input) {
+      input.dataset.originalPlaceholder = input.placeholder || '';
+      input.placeholder = '';
+    }
+  } else {
+    document.body.classList.remove('clean-mode');
+    if (btn) btn.classList.remove('active');
+    if (input && input.dataset.originalPlaceholder !== undefined) {
+      input.placeholder = input.dataset.originalPlaceholder;
+    } else if (input) {
+      input.placeholder = '輸入訊息(Enter 發送)...';
+    }
+  }
+}
+
 // ─── 聊天顯示 / 遮罩邏輯 ──────────────────────────────────────────────
 function updateChatVisibility() {
   const msgsEl = document.getElementById('msgs');
@@ -2664,6 +2745,11 @@ function resetToLogin(reason) {
   sinceSeq = 0;
   roster = []; rosterExpanded = false;
   sysMsgs.length = 0; sysExpanded = false;
+  // 解除乾淨版(不然登入畫面被 clean-mode 蓋住)
+  cleanMode = false;
+  document.body.classList.remove('clean-mode');
+  const cleanBtn = document.getElementById('clean-toggle');
+  if (cleanBtn) cleanBtn.classList.remove('active');
   pendingBurn.clear();
   for (const k in msgReads) delete msgReads[k];
   for (const k in sentReads) delete sentReads[k];
@@ -3110,6 +3196,20 @@ function getWebviewContent(serverUrl) {
                       padding: 8px 12px; border-radius: 3px; font-size: 12px; outline: none; }
   #input-area button { background: #ff4500; color: white; border: none;
                        padding: 8px 16px; border-radius: 3px; cursor: pointer; }
+  #clean-toggle { background: transparent !important; border: 1px solid #333 !important;
+                  color: #888 !important; cursor: pointer; padding: 8px 10px !important;
+                  border-radius: 3px; font-size: 14px; flex-shrink: 0; transition: .15s; }
+  #clean-toggle:hover { background: #1a0a00 !important; border-color: #ff4500 !important; }
+  #clean-toggle.active { color: #ff4500 !important; border-color: #ff4500 !important;
+                         background: rgba(255,69,0,.1) !important; }
+  /* 乾淨版:隱藏 header/roster/sys-log/burn-bar,保留訊息區與輸入列 */
+  body.clean-mode #header,
+  body.clean-mode #roster,
+  body.clean-mode #sys-log,
+  body.clean-mode #burn-bar { display: none !important; }
+  body.clean-mode #msg-input::placeholder { color: transparent; }
+  body.clean-mode #send-btn { font-size: 0; padding: 8px 14px; }
+  body.clean-mode #send-btn::after { content: '→'; font-size: 16px; }
   #auth-overlay { position: fixed; inset: 0; background: #0d0d0d;
                   display: flex; align-items: center; justify-content: center;
                   flex-direction: column; gap: 12px; z-index: 100; }
@@ -3158,8 +3258,9 @@ function getWebviewContent(serverUrl) {
 </div>
 <div id="messages" style="display:none"></div>
 <div id="input-area" style="display:none">
+  <button id="clean-toggle" class="clean-btn" onclick="toggleCleanMode()" title="Toggle clean mode">👁️</button>
   <input type="text" id="msg-input" placeholder="Type a message... (Enter to send)" />
-  <button onclick="sendMsg()">Send</button>
+  <button id="send-btn" onclick="sendMsg()">Send</button>
 </div>
 
 <script>
@@ -3186,6 +3287,7 @@ const ROSTER_COLLAPSE_THRESHOLD = 6;
 const sysMsgs = [];
 const MAX_SYS_MSGS = 10;
 let sysExpanded = false;
+let cleanMode = false;  // 乾淨版(本地狀態,不發給 server)
 let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;
@@ -3644,6 +3746,29 @@ function toggleSysLog() {
   renderSysLog();
 }
 
+// 乾淨版(本地狀態):隱藏 header/notice/roster/sys-log/burn-bar,只保留訊息區與輸入列
+function toggleCleanMode() {
+  cleanMode = !cleanMode;
+  const btn = document.getElementById('clean-toggle');
+  const input = document.getElementById('msg-input');
+  if (cleanMode) {
+    document.body.classList.add('clean-mode');
+    if (btn) btn.classList.add('active');
+    if (input) {
+      input.dataset.originalPlaceholder = input.placeholder || '';
+      input.placeholder = '';
+    }
+  } else {
+    document.body.classList.remove('clean-mode');
+    if (btn) btn.classList.remove('active');
+    if (input && input.dataset.originalPlaceholder !== undefined) {
+      input.placeholder = input.dataset.originalPlaceholder;
+    } else if (input) {
+      input.placeholder = 'Type a message...';
+    }
+  }
+}
+
 // ─── Chat redaction ──────────────────────────────────────
 function updateChatVisibility() {
   const msgsEl = document.getElementById('messages');
@@ -3670,6 +3795,11 @@ function resetToLogin(reason) {
   sinceSeq = 0;
   roster = []; rosterExpanded = false;
   sysMsgs.length = 0; sysExpanded = false;
+  // 解除乾淨版(不然登入畫面被 clean-mode 蓋住)
+  cleanMode = false;
+  document.body.classList.remove('clean-mode');
+  const cleanBtn = document.getElementById('clean-toggle');
+  if (cleanBtn) cleanBtn.classList.remove('active');
   pendingBurn.clear();
   for(const k in msgReads) delete msgReads[k];
   for(const k in sentReads) delete sentReads[k];

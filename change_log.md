@@ -11,6 +11,15 @@
 ## [Unreleased]
 
 ### 新增 (Added)
+- **乾淨版(Clean Mode)**:輸入框左邊加一個 👁️ 切換按鈕,點下去進入「乾淨版」
+  - **隱藏**:header(標題/@me/🔔/連線狀態)、焚模式提示條、線上名單 roster、系統訊息區 sys-log、焚毀設定 burn-bar
+  - **保留**:主訊息區(訊息、反黑遮罩、已讀、倒數全部照常運作)、輸入框、發送按鈕
+  - 輸入框 placeholder 變空白(用 `dataset.originalPlaceholder` 備份原值)
+  - 發送按鈕文字隱藏,用 `::after { content: '→' }` 顯示箭頭圖示
+  - 切換按鈕 active 狀態時邊框/文字變橘色
+  - 再點一次切回正常模式,所有元件回復
+  - **本地狀態**:`cleanMode` 變數只存在 client 記憶體,不發給 server,其他 client 看不到
+  - `resetToLogin()`(被 reap/踢出/房間刪除)會自動解除乾淨版,避免登入畫面被 clean-mode 蓋住
 - **系統訊息獨立折疊區 (`#sys-log`)**:所有系統訊息(XXX 加入/離開/踢出/改密碼通知等)不再穿插於主訊息區,改到聊天室頂端的獨立區域(位於 roster 下方、burn-bar 上方)
   - 預設折疊,只顯示最後一則
   - 按 `▼ 展開 N 則` 可看完整列表(最大高度 10vh,超過 scroll)
@@ -26,8 +35,9 @@
 
 ### 變更 (Changed)
 - `addSys` / `addSysMsg` 改為呼叫 `addSysEntry(text)`,不再建 DOM 進入主訊息區
-- 三個 client 新增狀態變數:`sysMsgs: []`, `MAX_SYS_MSGS = 10`, `sysExpanded: false`
-- 三個 client 新增函式:`addSysEntry / renderSysLog / toggleSysLog`
+- 三個 client 新增狀態變數:`sysMsgs: []`, `MAX_SYS_MSGS = 10`, `sysExpanded: false`, `cleanMode = false`
+- 三個 client 新增函式:`addSysEntry / renderSysLog / toggleSysLog / toggleCleanMode`
+- 發送按鈕加上 `id="send-btn"`(原本沒有 id),供 CSS 在乾淨版隱藏文字
 
 ---
 
