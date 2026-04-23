@@ -11,7 +11,11 @@
 ## [Unreleased]
 
 ### 新增 (Added)
-- **乾淨版(Clean Mode)**:輸入框左邊加一個 👁️ 切換按鈕,點下去進入「乾淨版」
+- **乾淨版切換按鈕改用自訂圖示**:原本的 👁️ emoji 改成吐舌幽靈 PNG 圖示(48x48 縮圖 base64 內嵌,三個 client 自給自足,約 4 KB)
+- **乾淨版隱藏已讀人名**:乾淨版時,已讀指示器的「已讀」字樣 + 名字完全隱藏,只保留 `✓` 打勾符號
+  - 實作:`updateReadIndicator` 把 `.readby` 內容拆成兩個 span(`.check` 和 `.names`),CSS 在 `body.clean-mode` 時 `display: none` 隱藏 `.names`
+  - 正常模式仍顯示「✓ 已讀: Alice, Bob」完整資訊
+- **乾淨版(Clean Mode)**:輸入框左邊加一個切換按鈕,點下去進入「乾淨版」
   - **隱藏**:header(標題/@me/🔔/連線狀態)、焚模式提示條、線上名單 roster、系統訊息區 sys-log、焚毀設定 burn-bar
   - **保留**:主訊息區(訊息、反黑遮罩、已讀、倒數全部照常運作)、輸入框、發送按鈕
   - 輸入框 placeholder 變空白(用 `dataset.originalPlaceholder` 備份原值)
