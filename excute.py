@@ -285,6 +285,63 @@ function getWebviewContent(serverUrl) {
   body.clean-mode #send-btn { font-size: 0; padding: 8px 14px; }
   body.clean-mode #send-btn::after { content: '→'; font-size: 16px; }
   body.clean-mode .readby .names { display: none; }
+
+  /* Emoji + 圖片按鈕 */
+  #emoji-toggle,#img-attach { background: transparent !important; border: 1px solid #333 !important;
+                              cursor: pointer; padding: 4px 8px !important; border-radius: 3px;
+                              font-size: 16px; flex-shrink: 0; transition: .15s; color: #e0e0e0 !important; }
+  #emoji-toggle:hover,#img-attach:hover { background: #1a0a00 !important; border-color: #ff4500 !important; }
+  #emoji-toggle.active { color: #ff4500 !important; border-color: #ff4500 !important; background: rgba(255,69,0,.1) !important; }
+
+  /* Emoji 面板 */
+  #emoji-panel { position: fixed; bottom: 68px; left: 16px; width: 300px; max-width: 92vw;
+                 background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 8px;
+                 z-index: 999; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+  #emoji-search { width: 100%; background: #0d0d0d; border: 1px solid #333; color: #e0e0e0;
+                  padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;
+                  box-sizing: border-box; margin-bottom: 6px; }
+  #emoji-search:focus { border-color: #ff4500; }
+  #emoji-tabs { display: flex; gap: 4px; border-bottom: 1px solid #333; padding-bottom: 6px; margin-bottom: 6px; }
+  #emoji-tabs .tab { cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 15px; opacity: .5; }
+  #emoji-tabs .tab:hover { opacity: .9; background: #0d0d0d; }
+  #emoji-tabs .tab.active { opacity: 1; background: #0d0d0d; box-shadow: inset 0 -2px 0 #ff4500; }
+  #emoji-grid { display: grid; grid-template-columns: repeat(8,1fr); gap: 2px; max-height: 220px; overflow-y: auto; }
+  #emoji-grid .emoji-cell { cursor: pointer; padding: 4px; text-align: center; font-size: 20px; border-radius: 3px; user-select: none; }
+  #emoji-grid .emoji-cell:hover { background: #ff4500; transform: scale(1.15); }
+
+  /* 圖片預覽 */
+  #img-preview { position: fixed; bottom: 68px; right: 16px; background: #1a1a1a; border: 1px solid #ff4500;
+                 border-radius: 6px; padding: 8px; display: flex; align-items: center; gap: 8px; z-index: 999;
+                 box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+  #img-preview #img-preview-thumb { max-width: 80px; max-height: 80px; border-radius: 3px; object-fit: cover; }
+  #img-preview #img-preview-size { font-size: 10px; color: #888; }
+  #img-preview button { background: transparent; border: 1px solid #333; color: #ff4444; cursor: pointer;
+                        width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; }
+  #img-preview button:hover { background: #ff4444; color: white; }
+
+  /* 訊息內圖片 */
+  .msg-image { width: 100%; max-width: 280px; aspect-ratio: 4/3; background-size: contain;
+               background-position: left center; background-repeat: no-repeat; margin-top: 6px;
+               border-radius: 4px; cursor: zoom-in; border: 1px solid #333; }
+  .msg.mine .msg-image { background-position: right center; }
+  #messages.redacted .msg:not(.system) .msg-image { filter: blur(18px); }
+
+  /* 全螢幕 viewer */
+  #img-viewer { position: fixed; inset: 0; background: rgba(0,0,0,.96); z-index: 9999; display: flex; flex-direction: column; }
+  #img-viewer-stage { flex: 1; overflow: hidden; position: relative; cursor: grab;
+                      display: flex; align-items: center; justify-content: center; }
+  #img-viewer-stage.dragging { cursor: grabbing; }
+  #img-viewer-content { width: 100%; height: 100%; background-size: contain; background-position: center;
+                        background-repeat: no-repeat; transition: transform .1s ease-out; transform-origin: center; }
+  #img-viewer-toolbar { padding: 10px 20px; display: flex; gap: 8px; align-items: center;
+                        justify-content: center; background: rgba(0,0,0,.5); border-top: 1px solid #222; }
+  #img-viewer-toolbar button { background: transparent; border: 1px solid #555; color: #ccc; cursor: pointer;
+                               padding: 6px 14px; border-radius: 4px; font-size: 14px; min-width: 44px; }
+  #img-viewer-toolbar button:hover { background: #333; color: white; border-color: #888; }
+  #img-viewer-zoom { color: #ccc; font-size: 12px; min-width: 50px; text-align: center; }
+  #img-viewer-warn { position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+                     background: rgba(255,69,0,.15); border: 1px solid #ff4500; color: #ff4500;
+                     padding: 6px 14px; border-radius: 20px; font-size: 11px; letter-spacing: .5px; }
   #auth-overlay { position: fixed; inset: 0; background: #0d0d0d;
                   display: flex; align-items: center; justify-content: center;
                   flex-direction: column; gap: 12px; z-index: 100; }
@@ -337,6 +394,28 @@ function getWebviewContent(serverUrl) {
   <input type="text" id="msg-input" placeholder="輸入訊息..." />
   <button id="send-btn" onclick="sendMsg()">發送</button>
 </div>
+<div id="emoji-panel" style="display:none">
+  <input type="text" id="emoji-search" placeholder="搜尋 emoji..." />
+  <div id="emoji-tabs"></div>
+  <div id="emoji-grid"></div>
+</div>
+<div id="img-preview" style="display:none">
+  <img id="img-preview-thumb" />
+  <span id="img-preview-size"></span>
+  <button onclick="clearImagePreview()" title="取消">✕</button>
+</div>
+<div id="img-viewer" style="display:none">
+  <div id="img-viewer-stage"><div id="img-viewer-content"></div></div>
+  <div id="img-viewer-toolbar">
+    <button onclick="viewerZoomOut()" title="縮小">−</button>
+    <span id="img-viewer-zoom">100%</span>
+    <button onclick="viewerZoomIn()" title="放大">+</button>
+    <button onclick="viewerReset()" title="重設">重設</button>
+    <button onclick="closeImageViewer()" title="關閉 (Esc)">✕</button>
+  </div>
+  <div id="img-viewer-warn" style="display:none">⚠ 請勿截圖或轉傳 · 訊息焚毀後圖片自動消失</div>
+</div>
+<input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
 
 <script>
 const RAW_URL = '${serverUrl}';
@@ -367,6 +446,288 @@ let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;
 const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+
+// ─── Emoji Picker 資料 + 功能 ──────────────────────────────────
+const EMOJI_DATA=[{"e":"😀","k":"grin smile happy 笑 開心"},{"e":"😃","k":"smile happy 開心 笑"},{"e":"😄","k":"laugh happy 大笑 開心"},{"e":"😁","k":"grin teeth 露齒 笑"},{"e":"😆","k":"laugh happy 哈哈"},{"e":"😅","k":"sweat laugh 尷尬 笑"},{"e":"🤣","k":"rofl laugh 笑翻 笑哭"},{"e":"😂","k":"joy laugh tears 笑哭"},{"e":"🙂","k":"slight smile 微笑"},{"e":"🙃","k":"upside flip 倒立 倒過來"},{"e":"😉","k":"wink 眨眼"},{"e":"😊","k":"blush smile 害羞 微笑"},{"e":"😇","k":"angel halo 天使"},{"e":"🥰","k":"love heart 愛心"},{"e":"😍","k":"heart eyes 愛心眼"},{"e":"🤩","k":"star eyes 星星眼 驚嘆"},{"e":"😘","k":"kiss 親親 飛吻"},{"e":"😗","k":"kiss 吻"},{"e":"☺️","k":"smile blush 微笑"},{"e":"😚","k":"kiss closed 閉眼親"},{"e":"😙","k":"kiss smile 親"},{"e":"🥲","k":"tear smile 含淚笑"},{"e":"😋","k":"yum tongue 好吃"},{"e":"😛","k":"tongue 吐舌"},{"e":"😜","k":"wink tongue 調皮"},{"e":"🤪","k":"zany crazy 瘋狂"},{"e":"😝","k":"tongue closed 扮鬼臉"},{"e":"🤑","k":"money mouth 錢 貪財"},{"e":"🤗","k":"hug 擁抱"},{"e":"🤭","k":"hand mouth 偷笑 驚"},{"e":"🤫","k":"shush quiet 噓 安靜"},{"e":"🤔","k":"thinking 思考"},{"e":"🤐","k":"zipper mouth 閉嘴"},{"e":"🤨","k":"raised eyebrow 懷疑"},{"e":"😐","k":"neutral 面無表情"},{"e":"😑","k":"expressionless 無奈"},{"e":"😶","k":"no mouth 無言"},{"e":"😏","k":"smirk 奸笑"},{"e":"😒","k":"unamused 無聊 不爽"},{"e":"🙄","k":"roll eyes 翻白眼"},{"e":"😬","k":"grimace 尷尬"},{"e":"🤥","k":"lying nose 說謊"},{"e":"😌","k":"relieved 放鬆"},{"e":"😔","k":"pensive 難過 沉思"},{"e":"😪","k":"sleepy 想睡"},{"e":"🤤","k":"drooling 流口水"},{"e":"😴","k":"sleeping 睡覺"},{"e":"😷","k":"mask 口罩 生病"},{"e":"🤒","k":"thermometer sick 發燒"},{"e":"🤕","k":"head bandage 受傷"},{"e":"🤢","k":"nauseated 想吐"},{"e":"🤮","k":"vomit 吐"},{"e":"🤧","k":"sneeze 打噴嚏"},{"e":"🥵","k":"hot 熱"},{"e":"🥶","k":"cold 冷"},{"e":"🥴","k":"woozy 醉"},{"e":"😵","k":"dizzy 暈"},{"e":"🤯","k":"exploding 爆炸 震驚"},{"e":"🤠","k":"cowboy 牛仔"},{"e":"🥳","k":"party 派對 慶生"},{"e":"😎","k":"sunglasses cool 酷 墨鏡"},{"e":"🤓","k":"nerd 書呆子"},{"e":"🧐","k":"monocle 單片眼鏡"},{"e":"😕","k":"confused 困惑"},{"e":"😟","k":"worried 擔心"},{"e":"🙁","k":"frown 皺眉"},{"e":"☹️","k":"frowning 難過"},{"e":"😮","k":"surprised 驚訝"},{"e":"😯","k":"hushed 驚"},{"e":"😲","k":"astonished 驚訝"},{"e":"😳","k":"flushed 臉紅"},{"e":"🥺","k":"pleading 拜託"},{"e":"😦","k":"frown open 驚慌"},{"e":"😧","k":"anguished 痛苦"},{"e":"😨","k":"fearful 害怕"},{"e":"😰","k":"cold sweat 冷汗"},{"e":"😥","k":"sad relieved 難過"},{"e":"😢","k":"cry 哭"},{"e":"😭","k":"loud cry 大哭"},{"e":"😱","k":"scream 尖叫"},{"e":"😖","k":"confounded 糾結"},{"e":"😣","k":"persevering 努力"},{"e":"😞","k":"disappointed 失望"},{"e":"😓","k":"downcast sweat 汗顏"},{"e":"😩","k":"weary 累"},{"e":"😫","k":"tired 疲累"},{"e":"🥱","k":"yawn 哈欠"},{"e":"😤","k":"triumph angry 生氣 哼"},{"e":"😡","k":"pout rage 憤怒"},{"e":"😠","k":"angry 生氣"},{"e":"🤬","k":"cursing 罵人 髒話"},{"e":"😈","k":"devil smile 壞笑"},{"e":"👿","k":"devil angry 惡魔"},{"e":"💀","k":"skull 骷髏 死"},{"e":"👻","k":"ghost 鬼 幽靈"},{"e":"👽","k":"alien 外星人"},{"e":"🤖","k":"robot 機器人"},{"e":"💩","k":"poop 便便"},{"e":"👋","k":"wave hi 揮手 你好"},{"e":"🤚","k":"raised back 舉手"},{"e":"🖐️","k":"hand spread 五指張開"},{"e":"✋","k":"raised 舉手 停"},{"e":"🖖","k":"vulcan 瓦肯"},{"e":"👌","k":"ok perfect 好 完美"},{"e":"🤌","k":"pinched 捏"},{"e":"🤏","k":"pinch small 一點點"},{"e":"✌️","k":"peace victory 勝利 二"},{"e":"🤞","k":"crossed fingers 祈禱 希望"},{"e":"🤟","k":"love you 我愛你"},{"e":"🤘","k":"rock horns 搖滾"},{"e":"🤙","k":"call me 打電話"},{"e":"👈","k":"point left 指左"},{"e":"👉","k":"point right 指右"},{"e":"👆","k":"point up 指上"},{"e":"🖕","k":"middle finger 中指"},{"e":"👇","k":"point down 指下"},{"e":"☝️","k":"point up 食指"},{"e":"👍","k":"thumbs up 讚 好"},{"e":"👎","k":"thumbs down 噓 差"},{"e":"✊","k":"fist 拳頭"},{"e":"👊","k":"punch 揍"},{"e":"🤛","k":"left fist 拳"},{"e":"🤜","k":"right fist 拳"},{"e":"👏","k":"clap 拍手 鼓掌"},{"e":"🙌","k":"praise 舉手 萬歲"},{"e":"👐","k":"open hands 雙手"},{"e":"🤲","k":"palms up 攤手"},{"e":"🤝","k":"handshake 握手"},{"e":"🙏","k":"pray please 拜託 祈禱"},{"e":"✍️","k":"writing 寫字"},{"e":"💅","k":"nail polish 指甲油"},{"e":"🤳","k":"selfie 自拍"},{"e":"💪","k":"muscle 肌肉 加油"},{"e":"🦾","k":"mechanical arm 機械手"},{"e":"🦿","k":"mechanical leg 機械腿"},{"e":"🦵","k":"leg 腿"},{"e":"🦶","k":"foot 腳"},{"e":"👂","k":"ear 耳朵"},{"e":"❤️","k":"red heart 愛心 紅色"},{"e":"🧡","k":"orange heart 橘色愛心"},{"e":"💛","k":"yellow heart 黃色愛心"},{"e":"💚","k":"green heart 綠色愛心"},{"e":"💙","k":"blue heart 藍色愛心"},{"e":"💜","k":"purple heart 紫色愛心"},{"e":"🖤","k":"black heart 黑色愛心"},{"e":"🤍","k":"white heart 白色愛心"},{"e":"🤎","k":"brown heart 棕色愛心"},{"e":"💔","k":"broken heart 心碎"},{"e":"❣️","k":"heart exclamation 愛心驚嘆"},{"e":"💕","k":"two hearts 雙愛心"},{"e":"💞","k":"revolving hearts 旋轉愛心"},{"e":"💓","k":"beating heart 愛心跳動"},{"e":"💗","k":"growing heart 愛心放大"},{"e":"💖","k":"sparkling heart 閃亮愛心"},{"e":"💘","k":"cupid arrow 丘比特之箭"},{"e":"💝","k":"heart gift 禮物愛心"},{"e":"💟","k":"heart decoration 愛心"},{"e":"♥️","k":"suit heart 愛心"},{"e":"💌","k":"love letter 情書"},{"e":"😻","k":"heart eyes cat 愛心貓"},{"e":"💑","k":"couple heart 情侶"},{"e":"💏","k":"kiss couple 接吻"},{"e":"🎉","k":"party popper 慶祝 派對"},{"e":"🎊","k":"confetti 彩紙"},{"e":"🎂","k":"cake 蛋糕 生日"},{"e":"🎁","k":"gift present 禮物"},{"e":"🎈","k":"balloon 氣球"},{"e":"🎆","k":"fireworks 煙火"},{"e":"🎇","k":"sparkler 仙女棒"},{"e":"✨","k":"sparkles 閃亮"},{"e":"⭐","k":"star 星星"},{"e":"🌟","k":"glowing star 閃亮星星"},{"e":"💫","k":"dizzy stars 星星"},{"e":"🎀","k":"ribbon 蝴蝶結"},{"e":"🎗️","k":"reminder ribbon 紀念緞帶"},{"e":"🏆","k":"trophy 獎盃"},{"e":"🥇","k":"gold medal 金牌"},{"e":"🥈","k":"silver medal 銀牌"},{"e":"🥉","k":"bronze medal 銅牌"},{"e":"🎖️","k":"military medal 勳章"},{"e":"👑","k":"crown 皇冠"},{"e":"💎","k":"diamond 鑽石"},{"e":"🥂","k":"clinking glasses 乾杯"},{"e":"🍾","k":"champagne 香檳"},{"e":"🎵","k":"music note 音符"},{"e":"🎶","k":"music notes 音符"},{"e":"🍎","k":"red apple 蘋果"},{"e":"🍊","k":"orange 柳橙"},{"e":"🍋","k":"lemon 檸檬"},{"e":"🍌","k":"banana 香蕉"},{"e":"🍉","k":"watermelon 西瓜"},{"e":"🍇","k":"grapes 葡萄"},{"e":"🍓","k":"strawberry 草莓"},{"e":"🫐","k":"blueberries 藍莓"},{"e":"🍈","k":"melon 哈密瓜"},{"e":"🍒","k":"cherries 櫻桃"},{"e":"🍑","k":"peach 桃子"},{"e":"🥭","k":"mango 芒果"},{"e":"🍍","k":"pineapple 鳳梨"},{"e":"🥝","k":"kiwi 奇異果"},{"e":"🥥","k":"coconut 椰子"},{"e":"🍅","k":"tomato 番茄"},{"e":"🥑","k":"avocado 酪梨"},{"e":"🍆","k":"eggplant 茄子"},{"e":"🌽","k":"corn 玉米"},{"e":"🥕","k":"carrot 紅蘿蔔"},{"e":"🍞","k":"bread 麵包"},{"e":"🥐","k":"croissant 可頌"},{"e":"🥖","k":"baguette 法國麵包"},{"e":"🥨","k":"pretzel 椒鹽脆餅"},{"e":"🧀","k":"cheese 起司"},{"e":"🍳","k":"egg fried 煎蛋"},{"e":"🥞","k":"pancakes 鬆餅"},{"e":"🥓","k":"bacon 培根"},{"e":"🥩","k":"steak 牛排"},{"e":"🍗","k":"chicken drumstick 雞腿"},{"e":"🍖","k":"meat bone 肉"},{"e":"🌭","k":"hotdog 熱狗"},{"e":"🍔","k":"hamburger 漢堡"},{"e":"🍟","k":"fries 薯條"},{"e":"🍕","k":"pizza 披薩"},{"e":"🌮","k":"taco 墨西哥捲餅"},{"e":"🌯","k":"burrito 墨西哥捲"},{"e":"🥗","k":"salad 沙拉"},{"e":"🍝","k":"spaghetti 義大利麵"},{"e":"🍜","k":"ramen 拉麵"},{"e":"🍱","k":"bento 便當"},{"e":"🍣","k":"sushi 壽司"},{"e":"🍤","k":"shrimp 炸蝦"},{"e":"🍙","k":"rice ball 飯糰"},{"e":"🍚","k":"rice 白飯"},{"e":"🍘","k":"rice cracker 仙貝"},{"e":"🍢","k":"oden 關東煮"},{"e":"🍡","k":"dango 糯米糰"},{"e":"🥟","k":"dumpling 餃子"},{"e":"🍦","k":"ice cream soft 霜淇淋"},{"e":"🍧","k":"shaved ice 剉冰"},{"e":"🍨","k":"ice cream 冰淇淋"},{"e":"🍩","k":"donut 甜甜圈"},{"e":"🍪","k":"cookie 餅乾"},{"e":"🎂","k":"birthday cake 生日蛋糕"},{"e":"🍰","k":"cake 蛋糕"},{"e":"🧁","k":"cupcake 杯子蛋糕"},{"e":"🥧","k":"pie 派"},{"e":"🍫","k":"chocolate 巧克力"},{"e":"🍬","k":"candy 糖果"},{"e":"🍭","k":"lollipop 棒棒糖"},{"e":"🍮","k":"pudding 布丁"},{"e":"🍯","k":"honey 蜂蜜"},{"e":"☕","k":"coffee 咖啡"},{"e":"🍵","k":"tea 茶"},{"e":"🧋","k":"bubble tea 珍珠奶茶"},{"e":"🍺","k":"beer 啤酒"},{"e":"🍻","k":"cheers beer 乾杯"},{"e":"🍷","k":"wine 紅酒"},{"e":"🍸","k":"cocktail 雞尾酒"},{"e":"🍹","k":"tropical 熱帶飲料"},{"e":"🥤","k":"cup drink 飲料"},{"e":"🐶","k":"dog face 小狗"},{"e":"🐱","k":"cat face 小貓"},{"e":"🐭","k":"mouse 老鼠"},{"e":"🐹","k":"hamster 倉鼠"},{"e":"🐰","k":"rabbit face 兔子"},{"e":"🦊","k":"fox 狐狸"},{"e":"🐻","k":"bear 熊"},{"e":"🐼","k":"panda 熊貓"},{"e":"🐨","k":"koala 無尾熊"},{"e":"🐯","k":"tiger 老虎"},{"e":"🦁","k":"lion 獅子"},{"e":"🐮","k":"cow 牛"},{"e":"🐷","k":"pig 豬"},{"e":"🐸","k":"frog 青蛙"},{"e":"🐵","k":"monkey face 猴子"},{"e":"🙈","k":"see no evil 猴子摀眼"},{"e":"🙉","k":"hear no evil 猴子摀耳"},{"e":"🙊","k":"speak no evil 猴子摀嘴"},{"e":"🐒","k":"monkey 猴子"},{"e":"🐔","k":"chicken 雞"},{"e":"🐧","k":"penguin 企鵝"},{"e":"🐦","k":"bird 鳥"},{"e":"🐤","k":"baby chick 小雞"},{"e":"🦆","k":"duck 鴨子"},{"e":"🦅","k":"eagle 老鷹"},{"e":"🦉","k":"owl 貓頭鷹"},{"e":"🦇","k":"bat 蝙蝠"},{"e":"🐺","k":"wolf 狼"},{"e":"🐗","k":"boar 野豬"},{"e":"🐴","k":"horse face 馬"},{"e":"🦄","k":"unicorn 獨角獸"},{"e":"🐝","k":"bee 蜜蜂"},{"e":"🐛","k":"bug 毛毛蟲"},{"e":"🦋","k":"butterfly 蝴蝶"},{"e":"🐌","k":"snail 蝸牛"},{"e":"🐞","k":"ladybug 瓢蟲"},{"e":"🐜","k":"ant 螞蟻"},{"e":"🕷️","k":"spider 蜘蛛"},{"e":"🐢","k":"turtle 烏龜"},{"e":"🐍","k":"snake 蛇"},{"e":"🐙","k":"octopus 章魚"},{"e":"🦑","k":"squid 魷魚"},{"e":"🦐","k":"shrimp 蝦"},{"e":"🐟","k":"fish 魚"},{"e":"🐬","k":"dolphin 海豚"},{"e":"🐳","k":"whale 鯨魚"},{"e":"🦈","k":"shark 鯊魚"},{"e":"⚽","k":"soccer 足球"},{"e":"🏀","k":"basketball 籃球"},{"e":"🏈","k":"football 美式足球"},{"e":"⚾","k":"baseball 棒球"},{"e":"🎾","k":"tennis 網球"},{"e":"🏐","k":"volleyball 排球"},{"e":"🎱","k":"billiards 撞球"},{"e":"🏓","k":"ping pong 桌球"},{"e":"🏸","k":"badminton 羽球"},{"e":"🎯","k":"dart 飛鏢 目標"},{"e":"🎲","k":"dice 骰子"},{"e":"🎮","k":"game 電動"},{"e":"🕹️","k":"joystick 搖桿"},{"e":"🎨","k":"palette 調色盤"},{"e":"🎬","k":"clapperboard 場記板"},{"e":"📷","k":"camera 相機"},{"e":"📹","k":"video camera 攝影機"},{"e":"🎥","k":"movie camera 電影"},{"e":"📺","k":"tv 電視"},{"e":"📱","k":"phone 手機"},{"e":"💻","k":"laptop 筆電"},{"e":"🖥️","k":"desktop 桌電"},{"e":"⌨️","k":"keyboard 鍵盤"},{"e":"🖱️","k":"mouse 滑鼠"},{"e":"💾","k":"floppy 磁碟片"},{"e":"💿","k":"cd CD"},{"e":"📀","k":"dvd DVD"},{"e":"🔋","k":"battery 電池"},{"e":"🔌","k":"plug 插頭"},{"e":"💡","k":"bulb 燈泡 想法"},{"e":"🔦","k":"flashlight 手電筒"},{"e":"🕯️","k":"candle 蠟燭"},{"e":"📚","k":"books 書本"},{"e":"📖","k":"open book 開書"},{"e":"📝","k":"memo 筆記"},{"e":"✏️","k":"pencil 鉛筆"},{"e":"✒️","k":"pen 鋼筆"},{"e":"📎","k":"paperclip 迴紋針"},{"e":"📌","k":"pushpin 圖釘"},{"e":"📍","k":"round pin 地點"},{"e":"🔑","k":"key 鑰匙"},{"e":"🔒","k":"lock 鎖"},{"e":"🔓","k":"unlock 開鎖"},{"e":"🔔","k":"bell 鈴鐺"},{"e":"🔕","k":"bell mute 靜音"},{"e":"⏰","k":"alarm 鬧鐘"},{"e":"⏳","k":"hourglass 沙漏"},{"e":"☀️","k":"sun 太陽"},{"e":"🌙","k":"moon 月亮"},{"e":"⭐","k":"star 星"},{"e":"🌈","k":"rainbow 彩虹"},{"e":"☁️","k":"cloud 雲"},{"e":"⛅","k":"cloud sun 多雲"},{"e":"🌧️","k":"rain 下雨"},{"e":"⛈️","k":"thunderstorm 雷雨"},{"e":"❄️","k":"snowflake 雪"},{"e":"🔥","k":"fire 火 讚"},{"e":"💧","k":"drop 水滴"},{"e":"🌊","k":"wave 海浪"},{"e":"🚀","k":"rocket 火箭"},{"e":"✈️","k":"airplane 飛機"},{"e":"🚗","k":"car 汽車"},{"e":"🏠","k":"house 房子"},{"e":"⛔","k":"no entry 禁止"},{"e":"✅","k":"check 打勾"},{"e":"❌","k":"cross 叉"},{"e":"❓","k":"question 問號"},{"e":"❗","k":"exclamation 驚嘆"},{"e":"💯","k":"hundred 100 滿分"},{"e":"🎵","k":"music note 音符"}];
+const EMOJI_CATS=[{"id":"face","icon":"😀","title":"表情","start":0,"end":98},{"id":"hand","icon":"👋","title":"手勢","start":98,"end":138},{"id":"heart","icon":"❤️","title":"愛","start":138,"end":162},{"id":"celebrate","icon":"🎉","title":"慶祝","start":162,"end":186},{"id":"food","icon":"🍎","title":"食物","start":186,"end":258},{"id":"animal","icon":"🐶","title":"動物","start":258,"end":305},{"id":"object","icon":"⚽","title":"物品","start":305,"end":375}];
+let emojiActiveCat = 'face';
+let pendingImage = null;
+let pendingImageSize = 0;
+
+function renderEmojiGrid(filter){
+  const grid = document.getElementById('emoji-grid');
+  if(!grid) return;
+  while(grid.firstChild) grid.removeChild(grid.firstChild);
+  let items;
+  if(filter && filter.trim().length > 0){
+    const q = filter.toLowerCase();
+    items = EMOJI_DATA.filter(x => x.k.toLowerCase().indexOf(q) !== -1 || x.e.indexOf(q) !== -1);
+  } else {
+    const cat = EMOJI_CATS.find(c => c.id === emojiActiveCat) || EMOJI_CATS[0];
+    items = EMOJI_DATA.slice(cat.start, cat.end);
+  }
+  for(const it of items){
+    const cell = document.createElement('div');
+    cell.className = 'emoji-cell';
+    cell.textContent = it.e;
+    cell.title = it.k;
+    cell.onclick = () => insertEmojiAtCursor(it.e);
+    grid.appendChild(cell);
+  }
+}
+function renderEmojiTabs(){
+  const tabs = document.getElementById('emoji-tabs');
+  if(!tabs) return;
+  while(tabs.firstChild) tabs.removeChild(tabs.firstChild);
+  for(const c of EMOJI_CATS){
+    const t = document.createElement('span');
+    t.className = 'tab' + (c.id === emojiActiveCat ? ' active' : '');
+    t.textContent = c.icon;
+    t.title = c.title;
+    t.onclick = () => {
+      emojiActiveCat = c.id;
+      const srch = document.getElementById('emoji-search');
+      if(srch) srch.value = '';
+      renderEmojiTabs();
+      renderEmojiGrid('');
+    };
+    tabs.appendChild(t);
+  }
+}
+function insertEmojiAtCursor(emoji){
+  const mi = document.getElementById('msg-input');
+  if(!mi) return;
+  const start = mi.selectionStart || mi.value.length;
+  const end = mi.selectionEnd || mi.value.length;
+  mi.value = mi.value.slice(0, start) + emoji + mi.value.slice(end);
+  mi.focus();
+  try { mi.setSelectionRange(start + emoji.length, start + emoji.length); } catch(e){}
+}
+function toggleEmojiPicker(){
+  const p = document.getElementById('emoji-panel');
+  const btn = document.getElementById('emoji-toggle');
+  if(!p) return;
+  if(p.style.display === 'none' || p.style.display === ''){
+    p.style.display = 'block';
+    if(btn) btn.classList.add('active');
+    renderEmojiTabs();
+    renderEmojiGrid('');
+    const srch = document.getElementById('emoji-search');
+    if(srch){ srch.value = ''; srch.focus(); }
+  } else {
+    p.style.display = 'none';
+    if(btn) btn.classList.remove('active');
+  }
+}
+document.addEventListener('click', (e) => {
+  const p = document.getElementById('emoji-panel');
+  const btn = document.getElementById('emoji-toggle');
+  if(!p || p.style.display === 'none') return;
+  if(p.contains(e.target) || (btn && btn.contains(e.target))) return;
+  p.style.display = 'none';
+  if(btn) btn.classList.remove('active');
+});
+(function bindEmojiSearch(){
+  const wait = setInterval(() => {
+    const s = document.getElementById('emoji-search');
+    if(!s) return;
+    clearInterval(wait);
+    s.oninput = () => renderEmojiGrid(s.value);
+  }, 100);
+})();
+
+// ─── 圖片上傳 ──────────────────────────────────────────────
+const IMG_MAX_BYTES = 800 * 1024;
+const IMG_MAX_DIM = 1280;
+
+async function handleImageFile(file){
+  if(!file) return;
+  if(['image/jpeg','image/png','image/webp'].indexOf(file.type) === -1){
+    alert('只支援 JPG / PNG / WebP');
+    return;
+  }
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error('load failed'));
+      im.src = dataUrl;
+    });
+    let w = img.width, h = img.height;
+    if(w > IMG_MAX_DIM || h > IMG_MAX_DIM){
+      if(w > h){ h = Math.round(h * IMG_MAX_DIM / w); w = IMG_MAX_DIM; }
+      else { w = Math.round(w * IMG_MAX_DIM / h); h = IMG_MAX_DIM; }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    const compressed = canvas.toDataURL('image/jpeg', 0.7);
+    const sizeBytes = Math.ceil(compressed.length * 3 / 4);
+    if(sizeBytes > IMG_MAX_BYTES){
+      const again = canvas.toDataURL('image/jpeg', 0.5);
+      const sz2 = Math.ceil(again.length * 3 / 4);
+      if(sz2 > IMG_MAX_BYTES){ alert('圖片太大(壓縮後仍超過 800 KB),請選較小的圖片'); return; }
+      pendingImage = again; pendingImageSize = sz2;
+    } else {
+      pendingImage = compressed; pendingImageSize = sizeBytes;
+    }
+    const prev = document.getElementById('img-preview');
+    const thumb = document.getElementById('img-preview-thumb');
+    const szEl = document.getElementById('img-preview-size');
+    thumb.src = pendingImage;
+    szEl.textContent = Math.round(pendingImageSize / 1024) + ' KB';
+    prev.style.display = 'flex';
+  } catch(e){
+    alert('處理圖片失敗' + ': ' + e.message);
+    pendingImage = null;
+  }
+  const inp = document.getElementById('img-file-input');
+  if(inp) inp.value = '';
+}
+function clearImagePreview(){
+  pendingImage = null;
+  pendingImageSize = 0;
+  const prev = document.getElementById('img-preview');
+  if(prev) prev.style.display = 'none';
+}
+(function bindImgInput(){
+  const wait = setInterval(() => {
+    const f = document.getElementById('img-file-input');
+    if(!f) return;
+    clearInterval(wait);
+    f.onchange = (e) => handleImageFile(e.target.files && e.target.files[0]);
+  }, 100);
+})();
+
+// ─── Fullscreen Viewer ─────────────────────────────────────
+let viewerZoom = 1;
+let viewerPanX = 0, viewerPanY = 0;
+let viewerCurrentMsgEl = null;
+let viewerDevtoolsCheckTimer = null;
+let msgLiveCheckTimer = null;
+
+function openImageViewer(dataUrl, msgEl){
+  const v = document.getElementById('img-viewer');
+  const content = document.getElementById('img-viewer-content');
+  const warn = document.getElementById('img-viewer-warn');
+  if(!v || !content) return;
+  viewerCurrentMsgEl = msgEl;
+  viewerZoom = 1; viewerPanX = 0; viewerPanY = 0;
+  content.style.backgroundImage = "url('" + dataUrl + "')";
+  applyViewerTransform();
+  v.style.display = 'flex';
+  if(warn){ warn.textContent = '⚠ 請勿截圖或轉傳 · 訊息焚毀後圖片自動消失'; warn.style.display = 'block'; }
+  setTimeout(() => { if(warn) warn.style.display = 'none'; }, 3500);
+  startDevtoolsCheck();
+  startMsgLiveCheck();
+}
+function closeImageViewer(){
+  const v = document.getElementById('img-viewer');
+  const content = document.getElementById('img-viewer-content');
+  if(v) v.style.display = 'none';
+  if(content) content.style.backgroundImage = '';
+  viewerCurrentMsgEl = null;
+  stopDevtoolsCheck();
+  stopMsgLiveCheck();
+}
+function applyViewerTransform(){
+  const content = document.getElementById('img-viewer-content');
+  const zoomText = document.getElementById('img-viewer-zoom');
+  if(!content) return;
+  content.style.transform = 'translate(' + viewerPanX + 'px,' + viewerPanY + 'px) scale(' + viewerZoom + ')';
+  if(zoomText) zoomText.textContent = Math.round(viewerZoom * 100) + '%';
+}
+function viewerZoomIn(){ viewerZoom = Math.min(5, viewerZoom + 0.25); applyViewerTransform(); }
+function viewerZoomOut(){ viewerZoom = Math.max(0.25, viewerZoom - 0.25); if(viewerZoom <= 1){ viewerPanX = 0; viewerPanY = 0; } applyViewerTransform(); }
+function viewerReset(){ viewerZoom = 1; viewerPanX = 0; viewerPanY = 0; applyViewerTransform(); }
+
+(function bindViewer(){
+  const wait = setInterval(() => {
+    const stage = document.getElementById('img-viewer-stage');
+    if(!stage) return;
+    clearInterval(wait);
+    let dragging = false, lastX = 0, lastY = 0;
+    stage.addEventListener('mousedown', (e) => {
+      if(viewerZoom <= 1) return;
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      stage.classList.add('dragging');
+    });
+    document.addEventListener('mousemove', (e) => {
+      if(!dragging) return;
+      viewerPanX += e.clientX - lastX;
+      viewerPanY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      applyViewerTransform();
+    });
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      const st = document.getElementById('img-viewer-stage');
+      if(st) st.classList.remove('dragging');
+    });
+    stage.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if(e.deltaY < 0) viewerZoomIn(); else viewerZoomOut();
+    }, {passive: false});
+    stage.addEventListener('click', (e) => {
+      if(e.target === stage) closeImageViewer();
+    });
+    document.addEventListener('keydown', (e) => {
+      const v = document.getElementById('img-viewer');
+      if(v && v.style.display !== 'none' && e.key === 'Escape') closeImageViewer();
+    });
+    stage.addEventListener('contextmenu', (e) => e.preventDefault());
+  }, 100);
+})();
+
+function startDevtoolsCheck(){
+  stopDevtoolsCheck();
+  viewerDevtoolsCheckTimer = setInterval(() => {
+    const threshold = 160;
+    if(window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold){
+      const warn = document.getElementById('img-viewer-warn');
+      if(warn){ warn.textContent = '⚠ 偵測到開發者工具 · 請勿擷取內容'; warn.style.display = 'block'; }
+    }
+  }, 800);
+}
+function stopDevtoolsCheck(){ if(viewerDevtoolsCheckTimer){ clearInterval(viewerDevtoolsCheckTimer); viewerDevtoolsCheckTimer = null; } }
+function startMsgLiveCheck(){
+  stopMsgLiveCheck();
+  msgLiveCheckTimer = setInterval(() => {
+    if(!viewerCurrentMsgEl || !document.body.contains(viewerCurrentMsgEl)) closeImageViewer();
+  }, 500);
+}
+function stopMsgLiveCheck(){ if(msgLiveCheckTimer){ clearInterval(msgLiveCheckTimer); msgLiveCheckTimer = null; } }
+
+// 動態注入 emoji + 圖片按鈕到 input-area 左邊(在 clean-toggle 右邊、msg-input 前)
+(function injectInputButtons(){
+  const wait = setInterval(() => {
+    const inp = document.getElementById('input-area');
+    const mi = document.getElementById('msg-input');
+    if(!inp || !mi || document.getElementById('emoji-toggle')){ if(document.getElementById('emoji-toggle')) clearInterval(wait); return; }
+    clearInterval(wait);
+    const emojiBtn = document.createElement('button');
+    emojiBtn.id = 'emoji-toggle';
+    emojiBtn.className = 'clean-btn';
+    emojiBtn.title = 'Emoji';
+    emojiBtn.textContent = '😀';
+    emojiBtn.onclick = (e) => { e.stopPropagation(); toggleEmojiPicker(); };
+    inp.insertBefore(emojiBtn, mi);
+    const imgBtn = document.createElement('button');
+    imgBtn.id = 'img-attach';
+    imgBtn.className = 'clean-btn';
+    imgBtn.title = '附加圖片';
+    imgBtn.textContent = '📎';
+    imgBtn.onclick = () => document.getElementById('img-file-input').click();
+    inp.insertBefore(imgBtn, mi);
+  }, 200);
+})();
+
 
 // ─── E2E 加密 (AES-256-GCM, key 派生自房間密碼) ───
 // 優先 WebCrypto;不可用時 fallback 到純 JS (insecure context 保護)
@@ -735,10 +1096,15 @@ function stopPolling() {
 
 async function handleEvent(d) {
   if (d.type === 'chat') {
-    let text;
-    try { text = await decryptText(d.encrypted); }
-    catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
-    addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders);
+    let text = '', image = null;
+    try {
+      const raw = await decryptText(d.encrypted);
+      if (raw && raw.length > 0 && raw.charAt(0) === '{') {
+        try { const obj = JSON.parse(raw); text = obj.text || ''; image = obj.image || null; }
+        catch(e){ text = raw; }
+      } else { text = raw; }
+    } catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
+    addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders, image);
   }
   else if (d.type === 'system') addSysMsg(d.text);
   else if (d.type === 'burnUpdate') {
@@ -964,21 +1330,30 @@ function updateReadIndicator(msgId) {
   ind.appendChild(namesSpan);
 }
 
-function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
+function addChatMsg(sender, text, isMine, msgId, expectedReaders, image) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = 'msg ' + (isMine ? 'mine' : 'other');
   if (msgId) div.setAttribute('data-msg-id', msgId);
   const s = document.createElement('div'); s.className = 'sender'; s.textContent = sender; div.appendChild(s);
-  // 文字包一層 .text-content 讓 redacted 狀態下能用 ::before 顯示 █ 遮罩
-  const t = document.createElement('div');
-  const inner = document.createElement('span');
-  inner.className = 'text-content';
-  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2)));
-  inner.setAttribute('data-mask', '█'.repeat(maskLen));
-  inner.textContent = text;
-  t.appendChild(inner);
-  div.appendChild(t);
+  if (text) {
+    const t = document.createElement('div');
+    const inner = document.createElement('span');
+    inner.className = 'text-content';
+    const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2) || 4));
+    inner.setAttribute('data-mask', '█'.repeat(maskLen));
+    inner.textContent = text;
+    t.appendChild(inner);
+    div.appendChild(t);
+  }
+  if (image) {
+    const imgDiv = document.createElement('div');
+    imgDiv.className = 'msg-image';
+    imgDiv.style.backgroundImage = "url('" + image + "')";
+    imgDiv.addEventListener('click', () => openImageViewer(image, div));
+    imgDiv.addEventListener('contextmenu', (e) => e.preventDefault());
+    div.appendChild(imgDiv);
+  }
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 
   // 倒數觸發邏輯:
@@ -1053,22 +1428,27 @@ function addSysMsg(text) {
 async function sendMsg() {
   const i = document.getElementById('msg-input');
   const text = i.value.trim();
-  if (!text) return;
+  if (!text && !pendingImage) return;
   if (!authToken) {
     addSysMsg('⚠ 尚未連線,無法發送');
     return;
   }
+  const imgToSend = pendingImage;
   i.value = '';
+  clearImagePreview();
   try {
-    const enc = await encryptText(text);
+    const payload = imgToSend ? JSON.stringify({text: text, image: imgToSend}) : text;
+    const enc = await encryptText(payload);
     const ok = await apiSend({type: 'chat', encrypted: enc});
     if (!ok) {
-      addSysMsg('⚠ 傳送失敗(網路不穩?)');
+      addSysMsg('⚠ 傳送失敗(網路不穩或圖片太大?)');
       i.value = text;
+      if (imgToSend) { pendingImage = imgToSend; document.getElementById('img-preview').style.display = 'flex'; }
     }
   } catch(err){
     addSysMsg('⚠ 加密失敗:' + (err.message || err));
     i.value = text;
+    if (imgToSend) { pendingImage = imgToSend; document.getElementById('img-preview').style.display = 'flex'; }
   }
 }
 
@@ -1207,6 +1587,28 @@ function createRoom(name, isDefault) {
 
 // ─── 訊息廣播 (append 到 log + 喚醒所有 waiters) ─────────────────────────────
 const MAX_LOG_SIZE = 200;
+const MAX_LOG_BYTES = 100 * 1024 * 1024;  // 100 MB/房間(照片加入後可能變大)
+
+// 估算一筆 event 佔用的 bytes(概略:JSON.stringify 長度)
+function estimateEventBytes(ev) {
+  if (ev._bytes) return ev._bytes;
+  try { ev._bytes = JSON.stringify(ev).length; } catch(e) { ev._bytes = 500; }
+  return ev._bytes;
+}
+
+function enforceLogSize(room) {
+  // 先按筆數限制
+  if (room.log.length > MAX_LOG_SIZE) {
+    room.log.splice(0, room.log.length - MAX_LOG_SIZE);
+  }
+  // 再按總 bytes 限制:從最舊推掉直到總大小 < MAX_LOG_BYTES
+  let total = 0;
+  for (const e of room.log) total += estimateEventBytes(e);
+  while (total > MAX_LOG_BYTES && room.log.length > 1) {
+    const removed = room.log.shift();
+    total -= estimateEventBytes(removed);
+  }
+}
 
 function appendEvent(roomId, event) {
   const room = rooms.get(roomId);
@@ -1214,10 +1616,7 @@ function appendEvent(roomId, event) {
   room.seq++;
   const entry = Object.assign({ seq: room.seq, ts: Date.now() }, event);
   room.log.push(entry);
-  // 限制 log 大小,丟掉最舊的
-  if (room.log.length > MAX_LOG_SIZE) {
-    room.log.splice(0, room.log.length - MAX_LOG_SIZE);
-  }
+  enforceLogSize(room);
   // 喚醒所有 long-poll waiters
   const waiters = room.waiters;
   room.waiters = [];
@@ -1294,7 +1693,7 @@ function isAdmin(req) {
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', d => { body += d; if (body.length > 100000) { req.destroy(); reject(new Error('payload too large')); } });
+    req.on('data', d => { body += d; if (body.length > 1500000) { req.destroy(); reject(new Error('payload too large')); } });
     req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch(e) { reject(e); } });
     req.on('error', reject);
   });
@@ -1542,7 +1941,7 @@ const server = http.createServer(async (req, res) => {
       touchClient(room.id, tokenData.clientId, nick);
 
       if (body.type === 'chat' && body.encrypted && typeof body.encrypted.ct === 'string' && typeof body.encrypted.iv === 'string') {
-        if (body.encrypted.ct.length > 14000 || body.encrypted.iv.length > 32) {
+        if (body.encrypted.ct.length > 1200000 || body.encrypted.iv.length > 32) {
           return sendJson(res, 400, { ok:false, error:'payload 過大' });
         }
         messageCount++;
@@ -2149,6 +2548,49 @@ body.clean-mode #mi::placeholder{color:transparent}
 body.clean-mode #send-btn{font-size:0;padding:8px 14px}
 body.clean-mode #send-btn::after{content:'→';font-size:16px}
 body.clean-mode .readby .names{display:none}
+
+/* Emoji / 圖片按鈕(共用 clean-btn 樣式已定義在 #clean-toggle) */
+#emoji-toggle,#img-attach{background:transparent;border:1px solid var(--border);cursor:pointer;padding:4px 8px;border-radius:4px;font-size:16px;flex-shrink:0;transition:.15s;color:var(--text)}
+#emoji-toggle:hover,#img-attach:hover{background:var(--bg);border-color:var(--accent)}
+#emoji-toggle.active{color:var(--accent);border-color:var(--accent);background:rgba(255,69,0,.1)}
+
+/* Emoji 彈出面板 */
+#emoji-panel{position:fixed;bottom:68px;left:20px;width:320px;max-width:92vw;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+#emoji-search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;font-family:inherit;font-size:12px;outline:none;box-sizing:border-box;margin-bottom:6px}
+#emoji-search:focus{border-color:var(--accent)}
+#emoji-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:6px}
+#emoji-tabs .tab{cursor:pointer;padding:3px 7px;border-radius:3px;font-size:15px;transition:.15s;opacity:.5}
+#emoji-tabs .tab:hover{opacity:.9;background:var(--bg)}
+#emoji-tabs .tab.active{opacity:1;background:var(--bg);box-shadow:inset 0 -2px 0 var(--accent)}
+#emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;max-height:220px;overflow-y:auto}
+#emoji-grid .emoji-cell{cursor:pointer;padding:4px;text-align:center;font-size:20px;border-radius:3px;transition:.1s;user-select:none}
+#emoji-grid .emoji-cell:hover{background:var(--accent);transform:scale(1.15)}
+
+/* 圖片預覽(發送前) */
+#img-preview{position:fixed;bottom:68px;right:20px;background:var(--bg2);border:1px solid var(--accent);border-radius:6px;padding:8px;display:flex;align-items:center;gap:8px;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+#img-preview #img-preview-thumb{max-width:80px;max-height:80px;border-radius:3px;object-fit:cover}
+#img-preview #img-preview-size{font-size:10px;color:var(--dim)}
+#img-preview button{background:transparent;border:1px solid var(--border);color:#ff4444;cursor:pointer;width:24px;height:24px;padding:0;border-radius:50%;font-size:12px}
+#img-preview button:hover{background:#ff4444;color:white}
+
+/* 訊息內的圖片(background-image 形式,防右鍵另存) */
+.msg-image{width:100%;max-width:300px;aspect-ratio:4/3;background-size:contain;background-position:left center;background-repeat:no-repeat;margin-top:6px;border-radius:4px;cursor:zoom-in;border:1px solid var(--border)}
+.msg.me .msg-image{background-position:right center}
+#msgs.redacted .msg:not(.sys) .msg-image{filter:blur(18px)}
+
+/* 全螢幕圖片檢視器 */
+#img-viewer{position:fixed;inset:0;background:rgba(0,0,0,.96);z-index:9999;display:flex;flex-direction:column}
+#img-viewer-stage{flex:1;overflow:hidden;position:relative;cursor:grab;display:flex;align-items:center;justify-content:center}
+#img-viewer-stage.dragging{cursor:grabbing}
+#img-viewer-content{width:100%;height:100%;background-size:contain;background-position:center;background-repeat:no-repeat;transition:transform .1s ease-out;transform-origin:center}
+#img-viewer-toolbar{padding:10px 20px;display:flex;gap:8px;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border-top:1px solid #222}
+#img-viewer-toolbar button{background:transparent;border:1px solid #555;color:#ccc;cursor:pointer;padding:6px 14px;border-radius:4px;font-size:14px;min-width:44px}
+#img-viewer-toolbar button:hover{background:#333;color:white;border-color:#888}
+#img-viewer-zoom{color:#ccc;font-size:12px;min-width:50px;text-align:center}
+#img-viewer-warn{position:absolute;top:20px;left:50%;transform:translateX(-50%);background:rgba(255,69,0,.15);border:1px solid var(--accent);color:var(--accent);padding:6px 14px;border-radius:20px;font-size:11px;letter-spacing:.5px}
+
+/* 乾淨版:emoji 按鈕保持可用,但 emoji 面板關閉時 */
+body.clean-mode #img-preview{box-shadow:none}
 .err{color:#ff4444;font-size:12px;text-align:center;min-height:16px}
 </style>
 </head>
@@ -2200,6 +2642,56 @@ body.clean-mode .readby .names{display:none}
   <input type="text" id="mi" placeholder="輸入訊息(Enter 發送)..." />
   <button id="send-btn" onclick="send()">發送</button>
 </div>
+<!-- Emoji Picker 彈出面板 -->
+<div id="emoji-panel" style="display:none">
+  <input type="text" id="emoji-search" placeholder="搜尋 emoji..." />
+  <div id="emoji-tabs"></div>
+  <div id="emoji-grid"></div>
+</div>
+<!-- 圖片預覽區(使用者選好還沒發送時) -->
+<div id="img-preview" style="display:none">
+  <img id="img-preview-thumb" />
+  <span id="img-preview-size"></span>
+  <button onclick="clearImagePreview()" title="取消">✕</button>
+</div>
+<!-- 圖片全螢幕檢視器 -->
+<div id="img-viewer" style="display:none">
+  <div id="img-viewer-stage">
+    <div id="img-viewer-content"></div>
+  </div>
+  <div id="img-viewer-toolbar">
+    <button onclick="viewerZoomOut()" title="縮小">−</button>
+    <span id="img-viewer-zoom">100%</span>
+    <button onclick="viewerZoomIn()" title="放大">+</button>
+    <button onclick="viewerReset()" title="重設">重設</button>
+    <button onclick="closeImageViewer()" title="關閉 (Esc)">✕</button>
+  </div>
+  <div id="img-viewer-warn" style="display:none">⚠ 請勿截圖或轉傳 · 訊息焚毀後圖片自動消失</div>
+</div>
+<!-- 隱藏的檔案 input -->
+<input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
+<script>
+// Input 左邊再加兩個按鈕(emoji + 圖片)
+(function injectInputButtons(){
+  const inp = document.getElementById('input');
+  const cleanBtn = document.getElementById('clean-toggle');
+  const mi = document.getElementById('mi');
+  const emojiBtn = document.createElement('button');
+  emojiBtn.id = 'emoji-toggle';
+  emojiBtn.className = 'clean-btn';
+  emojiBtn.title = 'Emoji';
+  emojiBtn.textContent = '😀';
+  emojiBtn.onclick = (e) => { e.stopPropagation(); toggleEmojiPicker(); };
+  inp.insertBefore(emojiBtn, mi);
+  const imgBtn = document.createElement('button');
+  imgBtn.id = 'img-attach';
+  imgBtn.className = 'clean-btn';
+  imgBtn.title = '附加圖片';
+  imgBtn.textContent = '📎';
+  imgBtn.onclick = () => document.getElementById('img-file-input').click();
+  inp.insertBefore(imgBtn, mi);
+})();
+</script>
 <script>
 const ROOM_ID = '${roomId}';
 const BASE_TITLE = '🔥 BurnerChat';
@@ -2228,6 +2720,295 @@ let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;  // 15 秒 heartbeat
 const HOST = location.host;
+
+// ─── Emoji Picker 資料 + 功能 ──────────────────────────────────
+const EMOJI_DATA=[{"e":"😀","k":"grin smile happy 笑 開心"},{"e":"😃","k":"smile happy 開心 笑"},{"e":"😄","k":"laugh happy 大笑 開心"},{"e":"😁","k":"grin teeth 露齒 笑"},{"e":"😆","k":"laugh happy 哈哈"},{"e":"😅","k":"sweat laugh 尷尬 笑"},{"e":"🤣","k":"rofl laugh 笑翻 笑哭"},{"e":"😂","k":"joy laugh tears 笑哭"},{"e":"🙂","k":"slight smile 微笑"},{"e":"🙃","k":"upside flip 倒立 倒過來"},{"e":"😉","k":"wink 眨眼"},{"e":"😊","k":"blush smile 害羞 微笑"},{"e":"😇","k":"angel halo 天使"},{"e":"🥰","k":"love heart 愛心"},{"e":"😍","k":"heart eyes 愛心眼"},{"e":"🤩","k":"star eyes 星星眼 驚嘆"},{"e":"😘","k":"kiss 親親 飛吻"},{"e":"😗","k":"kiss 吻"},{"e":"☺️","k":"smile blush 微笑"},{"e":"😚","k":"kiss closed 閉眼親"},{"e":"😙","k":"kiss smile 親"},{"e":"🥲","k":"tear smile 含淚笑"},{"e":"😋","k":"yum tongue 好吃"},{"e":"😛","k":"tongue 吐舌"},{"e":"😜","k":"wink tongue 調皮"},{"e":"🤪","k":"zany crazy 瘋狂"},{"e":"😝","k":"tongue closed 扮鬼臉"},{"e":"🤑","k":"money mouth 錢 貪財"},{"e":"🤗","k":"hug 擁抱"},{"e":"🤭","k":"hand mouth 偷笑 驚"},{"e":"🤫","k":"shush quiet 噓 安靜"},{"e":"🤔","k":"thinking 思考"},{"e":"🤐","k":"zipper mouth 閉嘴"},{"e":"🤨","k":"raised eyebrow 懷疑"},{"e":"😐","k":"neutral 面無表情"},{"e":"😑","k":"expressionless 無奈"},{"e":"😶","k":"no mouth 無言"},{"e":"😏","k":"smirk 奸笑"},{"e":"😒","k":"unamused 無聊 不爽"},{"e":"🙄","k":"roll eyes 翻白眼"},{"e":"😬","k":"grimace 尷尬"},{"e":"🤥","k":"lying nose 說謊"},{"e":"😌","k":"relieved 放鬆"},{"e":"😔","k":"pensive 難過 沉思"},{"e":"😪","k":"sleepy 想睡"},{"e":"🤤","k":"drooling 流口水"},{"e":"😴","k":"sleeping 睡覺"},{"e":"😷","k":"mask 口罩 生病"},{"e":"🤒","k":"thermometer sick 發燒"},{"e":"🤕","k":"head bandage 受傷"},{"e":"🤢","k":"nauseated 想吐"},{"e":"🤮","k":"vomit 吐"},{"e":"🤧","k":"sneeze 打噴嚏"},{"e":"🥵","k":"hot 熱"},{"e":"🥶","k":"cold 冷"},{"e":"🥴","k":"woozy 醉"},{"e":"😵","k":"dizzy 暈"},{"e":"🤯","k":"exploding 爆炸 震驚"},{"e":"🤠","k":"cowboy 牛仔"},{"e":"🥳","k":"party 派對 慶生"},{"e":"😎","k":"sunglasses cool 酷 墨鏡"},{"e":"🤓","k":"nerd 書呆子"},{"e":"🧐","k":"monocle 單片眼鏡"},{"e":"😕","k":"confused 困惑"},{"e":"😟","k":"worried 擔心"},{"e":"🙁","k":"frown 皺眉"},{"e":"☹️","k":"frowning 難過"},{"e":"😮","k":"surprised 驚訝"},{"e":"😯","k":"hushed 驚"},{"e":"😲","k":"astonished 驚訝"},{"e":"😳","k":"flushed 臉紅"},{"e":"🥺","k":"pleading 拜託"},{"e":"😦","k":"frown open 驚慌"},{"e":"😧","k":"anguished 痛苦"},{"e":"😨","k":"fearful 害怕"},{"e":"😰","k":"cold sweat 冷汗"},{"e":"😥","k":"sad relieved 難過"},{"e":"😢","k":"cry 哭"},{"e":"😭","k":"loud cry 大哭"},{"e":"😱","k":"scream 尖叫"},{"e":"😖","k":"confounded 糾結"},{"e":"😣","k":"persevering 努力"},{"e":"😞","k":"disappointed 失望"},{"e":"😓","k":"downcast sweat 汗顏"},{"e":"😩","k":"weary 累"},{"e":"😫","k":"tired 疲累"},{"e":"🥱","k":"yawn 哈欠"},{"e":"😤","k":"triumph angry 生氣 哼"},{"e":"😡","k":"pout rage 憤怒"},{"e":"😠","k":"angry 生氣"},{"e":"🤬","k":"cursing 罵人 髒話"},{"e":"😈","k":"devil smile 壞笑"},{"e":"👿","k":"devil angry 惡魔"},{"e":"💀","k":"skull 骷髏 死"},{"e":"👻","k":"ghost 鬼 幽靈"},{"e":"👽","k":"alien 外星人"},{"e":"🤖","k":"robot 機器人"},{"e":"💩","k":"poop 便便"},{"e":"👋","k":"wave hi 揮手 你好"},{"e":"🤚","k":"raised back 舉手"},{"e":"🖐️","k":"hand spread 五指張開"},{"e":"✋","k":"raised 舉手 停"},{"e":"🖖","k":"vulcan 瓦肯"},{"e":"👌","k":"ok perfect 好 完美"},{"e":"🤌","k":"pinched 捏"},{"e":"🤏","k":"pinch small 一點點"},{"e":"✌️","k":"peace victory 勝利 二"},{"e":"🤞","k":"crossed fingers 祈禱 希望"},{"e":"🤟","k":"love you 我愛你"},{"e":"🤘","k":"rock horns 搖滾"},{"e":"🤙","k":"call me 打電話"},{"e":"👈","k":"point left 指左"},{"e":"👉","k":"point right 指右"},{"e":"👆","k":"point up 指上"},{"e":"🖕","k":"middle finger 中指"},{"e":"👇","k":"point down 指下"},{"e":"☝️","k":"point up 食指"},{"e":"👍","k":"thumbs up 讚 好"},{"e":"👎","k":"thumbs down 噓 差"},{"e":"✊","k":"fist 拳頭"},{"e":"👊","k":"punch 揍"},{"e":"🤛","k":"left fist 拳"},{"e":"🤜","k":"right fist 拳"},{"e":"👏","k":"clap 拍手 鼓掌"},{"e":"🙌","k":"praise 舉手 萬歲"},{"e":"👐","k":"open hands 雙手"},{"e":"🤲","k":"palms up 攤手"},{"e":"🤝","k":"handshake 握手"},{"e":"🙏","k":"pray please 拜託 祈禱"},{"e":"✍️","k":"writing 寫字"},{"e":"💅","k":"nail polish 指甲油"},{"e":"🤳","k":"selfie 自拍"},{"e":"💪","k":"muscle 肌肉 加油"},{"e":"🦾","k":"mechanical arm 機械手"},{"e":"🦿","k":"mechanical leg 機械腿"},{"e":"🦵","k":"leg 腿"},{"e":"🦶","k":"foot 腳"},{"e":"👂","k":"ear 耳朵"},{"e":"❤️","k":"red heart 愛心 紅色"},{"e":"🧡","k":"orange heart 橘色愛心"},{"e":"💛","k":"yellow heart 黃色愛心"},{"e":"💚","k":"green heart 綠色愛心"},{"e":"💙","k":"blue heart 藍色愛心"},{"e":"💜","k":"purple heart 紫色愛心"},{"e":"🖤","k":"black heart 黑色愛心"},{"e":"🤍","k":"white heart 白色愛心"},{"e":"🤎","k":"brown heart 棕色愛心"},{"e":"💔","k":"broken heart 心碎"},{"e":"❣️","k":"heart exclamation 愛心驚嘆"},{"e":"💕","k":"two hearts 雙愛心"},{"e":"💞","k":"revolving hearts 旋轉愛心"},{"e":"💓","k":"beating heart 愛心跳動"},{"e":"💗","k":"growing heart 愛心放大"},{"e":"💖","k":"sparkling heart 閃亮愛心"},{"e":"💘","k":"cupid arrow 丘比特之箭"},{"e":"💝","k":"heart gift 禮物愛心"},{"e":"💟","k":"heart decoration 愛心"},{"e":"♥️","k":"suit heart 愛心"},{"e":"💌","k":"love letter 情書"},{"e":"😻","k":"heart eyes cat 愛心貓"},{"e":"💑","k":"couple heart 情侶"},{"e":"💏","k":"kiss couple 接吻"},{"e":"🎉","k":"party popper 慶祝 派對"},{"e":"🎊","k":"confetti 彩紙"},{"e":"🎂","k":"cake 蛋糕 生日"},{"e":"🎁","k":"gift present 禮物"},{"e":"🎈","k":"balloon 氣球"},{"e":"🎆","k":"fireworks 煙火"},{"e":"🎇","k":"sparkler 仙女棒"},{"e":"✨","k":"sparkles 閃亮"},{"e":"⭐","k":"star 星星"},{"e":"🌟","k":"glowing star 閃亮星星"},{"e":"💫","k":"dizzy stars 星星"},{"e":"🎀","k":"ribbon 蝴蝶結"},{"e":"🎗️","k":"reminder ribbon 紀念緞帶"},{"e":"🏆","k":"trophy 獎盃"},{"e":"🥇","k":"gold medal 金牌"},{"e":"🥈","k":"silver medal 銀牌"},{"e":"🥉","k":"bronze medal 銅牌"},{"e":"🎖️","k":"military medal 勳章"},{"e":"👑","k":"crown 皇冠"},{"e":"💎","k":"diamond 鑽石"},{"e":"🥂","k":"clinking glasses 乾杯"},{"e":"🍾","k":"champagne 香檳"},{"e":"🎵","k":"music note 音符"},{"e":"🎶","k":"music notes 音符"},{"e":"🍎","k":"red apple 蘋果"},{"e":"🍊","k":"orange 柳橙"},{"e":"🍋","k":"lemon 檸檬"},{"e":"🍌","k":"banana 香蕉"},{"e":"🍉","k":"watermelon 西瓜"},{"e":"🍇","k":"grapes 葡萄"},{"e":"🍓","k":"strawberry 草莓"},{"e":"🫐","k":"blueberries 藍莓"},{"e":"🍈","k":"melon 哈密瓜"},{"e":"🍒","k":"cherries 櫻桃"},{"e":"🍑","k":"peach 桃子"},{"e":"🥭","k":"mango 芒果"},{"e":"🍍","k":"pineapple 鳳梨"},{"e":"🥝","k":"kiwi 奇異果"},{"e":"🥥","k":"coconut 椰子"},{"e":"🍅","k":"tomato 番茄"},{"e":"🥑","k":"avocado 酪梨"},{"e":"🍆","k":"eggplant 茄子"},{"e":"🌽","k":"corn 玉米"},{"e":"🥕","k":"carrot 紅蘿蔔"},{"e":"🍞","k":"bread 麵包"},{"e":"🥐","k":"croissant 可頌"},{"e":"🥖","k":"baguette 法國麵包"},{"e":"🥨","k":"pretzel 椒鹽脆餅"},{"e":"🧀","k":"cheese 起司"},{"e":"🍳","k":"egg fried 煎蛋"},{"e":"🥞","k":"pancakes 鬆餅"},{"e":"🥓","k":"bacon 培根"},{"e":"🥩","k":"steak 牛排"},{"e":"🍗","k":"chicken drumstick 雞腿"},{"e":"🍖","k":"meat bone 肉"},{"e":"🌭","k":"hotdog 熱狗"},{"e":"🍔","k":"hamburger 漢堡"},{"e":"🍟","k":"fries 薯條"},{"e":"🍕","k":"pizza 披薩"},{"e":"🌮","k":"taco 墨西哥捲餅"},{"e":"🌯","k":"burrito 墨西哥捲"},{"e":"🥗","k":"salad 沙拉"},{"e":"🍝","k":"spaghetti 義大利麵"},{"e":"🍜","k":"ramen 拉麵"},{"e":"🍱","k":"bento 便當"},{"e":"🍣","k":"sushi 壽司"},{"e":"🍤","k":"shrimp 炸蝦"},{"e":"🍙","k":"rice ball 飯糰"},{"e":"🍚","k":"rice 白飯"},{"e":"🍘","k":"rice cracker 仙貝"},{"e":"🍢","k":"oden 關東煮"},{"e":"🍡","k":"dango 糯米糰"},{"e":"🥟","k":"dumpling 餃子"},{"e":"🍦","k":"ice cream soft 霜淇淋"},{"e":"🍧","k":"shaved ice 剉冰"},{"e":"🍨","k":"ice cream 冰淇淋"},{"e":"🍩","k":"donut 甜甜圈"},{"e":"🍪","k":"cookie 餅乾"},{"e":"🎂","k":"birthday cake 生日蛋糕"},{"e":"🍰","k":"cake 蛋糕"},{"e":"🧁","k":"cupcake 杯子蛋糕"},{"e":"🥧","k":"pie 派"},{"e":"🍫","k":"chocolate 巧克力"},{"e":"🍬","k":"candy 糖果"},{"e":"🍭","k":"lollipop 棒棒糖"},{"e":"🍮","k":"pudding 布丁"},{"e":"🍯","k":"honey 蜂蜜"},{"e":"☕","k":"coffee 咖啡"},{"e":"🍵","k":"tea 茶"},{"e":"🧋","k":"bubble tea 珍珠奶茶"},{"e":"🍺","k":"beer 啤酒"},{"e":"🍻","k":"cheers beer 乾杯"},{"e":"🍷","k":"wine 紅酒"},{"e":"🍸","k":"cocktail 雞尾酒"},{"e":"🍹","k":"tropical 熱帶飲料"},{"e":"🥤","k":"cup drink 飲料"},{"e":"🐶","k":"dog face 小狗"},{"e":"🐱","k":"cat face 小貓"},{"e":"🐭","k":"mouse 老鼠"},{"e":"🐹","k":"hamster 倉鼠"},{"e":"🐰","k":"rabbit face 兔子"},{"e":"🦊","k":"fox 狐狸"},{"e":"🐻","k":"bear 熊"},{"e":"🐼","k":"panda 熊貓"},{"e":"🐨","k":"koala 無尾熊"},{"e":"🐯","k":"tiger 老虎"},{"e":"🦁","k":"lion 獅子"},{"e":"🐮","k":"cow 牛"},{"e":"🐷","k":"pig 豬"},{"e":"🐸","k":"frog 青蛙"},{"e":"🐵","k":"monkey face 猴子"},{"e":"🙈","k":"see no evil 猴子摀眼"},{"e":"🙉","k":"hear no evil 猴子摀耳"},{"e":"🙊","k":"speak no evil 猴子摀嘴"},{"e":"🐒","k":"monkey 猴子"},{"e":"🐔","k":"chicken 雞"},{"e":"🐧","k":"penguin 企鵝"},{"e":"🐦","k":"bird 鳥"},{"e":"🐤","k":"baby chick 小雞"},{"e":"🦆","k":"duck 鴨子"},{"e":"🦅","k":"eagle 老鷹"},{"e":"🦉","k":"owl 貓頭鷹"},{"e":"🦇","k":"bat 蝙蝠"},{"e":"🐺","k":"wolf 狼"},{"e":"🐗","k":"boar 野豬"},{"e":"🐴","k":"horse face 馬"},{"e":"🦄","k":"unicorn 獨角獸"},{"e":"🐝","k":"bee 蜜蜂"},{"e":"🐛","k":"bug 毛毛蟲"},{"e":"🦋","k":"butterfly 蝴蝶"},{"e":"🐌","k":"snail 蝸牛"},{"e":"🐞","k":"ladybug 瓢蟲"},{"e":"🐜","k":"ant 螞蟻"},{"e":"🕷️","k":"spider 蜘蛛"},{"e":"🐢","k":"turtle 烏龜"},{"e":"🐍","k":"snake 蛇"},{"e":"🐙","k":"octopus 章魚"},{"e":"🦑","k":"squid 魷魚"},{"e":"🦐","k":"shrimp 蝦"},{"e":"🐟","k":"fish 魚"},{"e":"🐬","k":"dolphin 海豚"},{"e":"🐳","k":"whale 鯨魚"},{"e":"🦈","k":"shark 鯊魚"},{"e":"⚽","k":"soccer 足球"},{"e":"🏀","k":"basketball 籃球"},{"e":"🏈","k":"football 美式足球"},{"e":"⚾","k":"baseball 棒球"},{"e":"🎾","k":"tennis 網球"},{"e":"🏐","k":"volleyball 排球"},{"e":"🎱","k":"billiards 撞球"},{"e":"🏓","k":"ping pong 桌球"},{"e":"🏸","k":"badminton 羽球"},{"e":"🎯","k":"dart 飛鏢 目標"},{"e":"🎲","k":"dice 骰子"},{"e":"🎮","k":"game 電動"},{"e":"🕹️","k":"joystick 搖桿"},{"e":"🎨","k":"palette 調色盤"},{"e":"🎬","k":"clapperboard 場記板"},{"e":"📷","k":"camera 相機"},{"e":"📹","k":"video camera 攝影機"},{"e":"🎥","k":"movie camera 電影"},{"e":"📺","k":"tv 電視"},{"e":"📱","k":"phone 手機"},{"e":"💻","k":"laptop 筆電"},{"e":"🖥️","k":"desktop 桌電"},{"e":"⌨️","k":"keyboard 鍵盤"},{"e":"🖱️","k":"mouse 滑鼠"},{"e":"💾","k":"floppy 磁碟片"},{"e":"💿","k":"cd CD"},{"e":"📀","k":"dvd DVD"},{"e":"🔋","k":"battery 電池"},{"e":"🔌","k":"plug 插頭"},{"e":"💡","k":"bulb 燈泡 想法"},{"e":"🔦","k":"flashlight 手電筒"},{"e":"🕯️","k":"candle 蠟燭"},{"e":"📚","k":"books 書本"},{"e":"📖","k":"open book 開書"},{"e":"📝","k":"memo 筆記"},{"e":"✏️","k":"pencil 鉛筆"},{"e":"✒️","k":"pen 鋼筆"},{"e":"📎","k":"paperclip 迴紋針"},{"e":"📌","k":"pushpin 圖釘"},{"e":"📍","k":"round pin 地點"},{"e":"🔑","k":"key 鑰匙"},{"e":"🔒","k":"lock 鎖"},{"e":"🔓","k":"unlock 開鎖"},{"e":"🔔","k":"bell 鈴鐺"},{"e":"🔕","k":"bell mute 靜音"},{"e":"⏰","k":"alarm 鬧鐘"},{"e":"⏳","k":"hourglass 沙漏"},{"e":"☀️","k":"sun 太陽"},{"e":"🌙","k":"moon 月亮"},{"e":"⭐","k":"star 星"},{"e":"🌈","k":"rainbow 彩虹"},{"e":"☁️","k":"cloud 雲"},{"e":"⛅","k":"cloud sun 多雲"},{"e":"🌧️","k":"rain 下雨"},{"e":"⛈️","k":"thunderstorm 雷雨"},{"e":"❄️","k":"snowflake 雪"},{"e":"🔥","k":"fire 火 讚"},{"e":"💧","k":"drop 水滴"},{"e":"🌊","k":"wave 海浪"},{"e":"🚀","k":"rocket 火箭"},{"e":"✈️","k":"airplane 飛機"},{"e":"🚗","k":"car 汽車"},{"e":"🏠","k":"house 房子"},{"e":"⛔","k":"no entry 禁止"},{"e":"✅","k":"check 打勾"},{"e":"❌","k":"cross 叉"},{"e":"❓","k":"question 問號"},{"e":"❗","k":"exclamation 驚嘆"},{"e":"💯","k":"hundred 100 滿分"},{"e":"🎵","k":"music note 音符"}];
+const EMOJI_CATS=[{"id":"face","icon":"😀","title":"表情","start":0,"end":98},{"id":"hand","icon":"👋","title":"手勢","start":98,"end":138},{"id":"heart","icon":"❤️","title":"愛","start":138,"end":162},{"id":"celebrate","icon":"🎉","title":"慶祝","start":162,"end":186},{"id":"food","icon":"🍎","title":"食物","start":186,"end":258},{"id":"animal","icon":"🐶","title":"動物","start":258,"end":305},{"id":"object","icon":"⚽","title":"物品","start":305,"end":375}];
+let emojiActiveCat = 'face';
+let pendingImage = null;  // 待發送的圖片 base64
+// 待發送圖片的 data URL (含 data:image/jpeg;base64, 前綴)
+let pendingImageSize = 0;
+
+function renderEmojiGrid(filter){
+  const grid = document.getElementById('emoji-grid');
+  if(!grid) return;
+  while(grid.firstChild) grid.removeChild(grid.firstChild);
+  let items;
+  if(filter && filter.trim().length > 0){
+    const q = filter.toLowerCase();
+    items = EMOJI_DATA.filter(x => x.k.toLowerCase().indexOf(q) !== -1 || x.e.indexOf(q) !== -1);
+  } else {
+    const cat = EMOJI_CATS.find(c => c.id === emojiActiveCat) || EMOJI_CATS[0];
+    items = EMOJI_DATA.slice(cat.start, cat.end);
+  }
+  for(const it of items){
+    const cell = document.createElement('div');
+    cell.className = 'emoji-cell';
+    cell.textContent = it.e;
+    cell.title = it.k;
+    cell.onclick = () => insertEmojiAtCursor(it.e);
+    grid.appendChild(cell);
+  }
+}
+function renderEmojiTabs(){
+  const tabs = document.getElementById('emoji-tabs');
+  if(!tabs) return;
+  while(tabs.firstChild) tabs.removeChild(tabs.firstChild);
+  for(const c of EMOJI_CATS){
+    const t = document.createElement('span');
+    t.className = 'tab' + (c.id === emojiActiveCat ? ' active' : '');
+    t.textContent = c.icon;
+    t.title = c.title;
+    t.onclick = () => {
+      emojiActiveCat = c.id;
+      document.getElementById('emoji-search').value = '';
+      renderEmojiTabs();
+      renderEmojiGrid('');
+    };
+    tabs.appendChild(t);
+  }
+}
+function insertEmojiAtCursor(emoji){
+  const mi = document.getElementById('mi') || document.getElementById('msg-input');
+  if(!mi) return;
+  const start = mi.selectionStart || mi.value.length;
+  const end = mi.selectionEnd || mi.value.length;
+  mi.value = mi.value.slice(0, start) + emoji + mi.value.slice(end);
+  const newPos = start + emoji.length;
+  mi.focus();
+  try { mi.setSelectionRange(newPos, newPos); } catch(e){}
+}
+function toggleEmojiPicker(){
+  const p = document.getElementById('emoji-panel');
+  const btn = document.getElementById('emoji-toggle');
+  if(!p) return;
+  if(p.style.display === 'none' || p.style.display === ''){
+    p.style.display = 'block';
+    if(btn) btn.classList.add('active');
+    renderEmojiTabs();
+    renderEmojiGrid('');
+    const srch = document.getElementById('emoji-search');
+    if(srch){ srch.value = ''; srch.focus(); }
+  } else {
+    p.style.display = 'none';
+    if(btn) btn.classList.remove('active');
+  }
+}
+// 點外面關閉
+document.addEventListener('click', (e) => {
+  const p = document.getElementById('emoji-panel');
+  const btn = document.getElementById('emoji-toggle');
+  if(!p || p.style.display === 'none') return;
+  if(p.contains(e.target) || (btn && btn.contains(e.target))) return;
+  p.style.display = 'none';
+  if(btn) btn.classList.remove('active');
+});
+// 搜尋框過濾
+(function bindEmojiSearch(){
+  const wait = setInterval(() => {
+    const s = document.getElementById('emoji-search');
+    if(!s) return;
+    clearInterval(wait);
+    s.oninput = () => renderEmojiGrid(s.value);
+  }, 100);
+})();
+
+// ─── 圖片上傳:壓縮後存到 pendingImage ──────────────────────────
+const IMG_MAX_BYTES = 800 * 1024;   // 800 KB 上限
+const IMG_MAX_DIM = 1280;
+
+async function handleImageFile(file){
+  if(!file) return;
+  if(['image/jpeg','image/png','image/webp'].indexOf(file.type) === -1){
+    alert('只支援 JPG / PNG / WebP');
+    return;
+  }
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error('圖片載入失敗'));
+      im.src = dataUrl;
+    });
+    // 計算縮放後尺寸(最長邊 1280)
+    let w = img.width, h = img.height;
+    if(w > IMG_MAX_DIM || h > IMG_MAX_DIM){
+      if(w > h){ h = Math.round(h * IMG_MAX_DIM / w); w = IMG_MAX_DIM; }
+      else { w = Math.round(w * IMG_MAX_DIM / h); h = IMG_MAX_DIM; }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    // 一律轉 JPEG 0.7 壓縮
+    const compressed = canvas.toDataURL('image/jpeg', 0.7);
+    const sizeBytes = Math.ceil(compressed.length * 3 / 4);
+    if(sizeBytes > IMG_MAX_BYTES){
+      // 再壓一次 0.5
+      const again = canvas.toDataURL('image/jpeg', 0.5);
+      const sz2 = Math.ceil(again.length * 3 / 4);
+      if(sz2 > IMG_MAX_BYTES){
+        alert('圖片太大(壓縮後仍超過 800 KB),請選較小的圖片');
+        return;
+      }
+      pendingImage = again; pendingImageSize = sz2;
+    } else {
+      pendingImage = compressed; pendingImageSize = sizeBytes;
+    }
+    // 顯示預覽
+    const prev = document.getElementById('img-preview');
+    const thumb = document.getElementById('img-preview-thumb');
+    const szEl = document.getElementById('img-preview-size');
+    thumb.src = pendingImage;
+    szEl.textContent = Math.round(pendingImageSize / 1024) + ' KB';
+    prev.style.display = 'flex';
+  } catch(e){
+    alert('處理圖片失敗:' + e.message);
+    pendingImage = null;
+  }
+  // 清除 input,同一檔案可再選一次
+  const inp = document.getElementById('img-file-input');
+  if(inp) inp.value = '';
+}
+function clearImagePreview(){
+  pendingImage = null;
+  pendingImageSize = 0;
+  const prev = document.getElementById('img-preview');
+  if(prev) prev.style.display = 'none';
+}
+(function bindImgInput(){
+  const wait = setInterval(() => {
+    const f = document.getElementById('img-file-input');
+    if(!f) return;
+    clearInterval(wait);
+    f.onchange = (e) => handleImageFile(e.target.files && e.target.files[0]);
+  }, 100);
+})();
+
+// ─── 圖片全螢幕檢視器 ──────────────────────────────────────────
+let viewerZoom = 1;
+let viewerPanX = 0, viewerPanY = 0;
+let viewerCurrentMsgEl = null;  // 對應哪則訊息的圖(用來偵測是否被焚毀)
+let viewerDevtoolsCheckTimer = null;
+
+function openImageViewer(dataUrl, msgEl){
+  const v = document.getElementById('img-viewer');
+  const content = document.getElementById('img-viewer-content');
+  const warn = document.getElementById('img-viewer-warn');
+  if(!v || !content) return;
+  viewerCurrentMsgEl = msgEl;
+  viewerZoom = 1; viewerPanX = 0; viewerPanY = 0;
+  content.style.backgroundImage = "url('" + dataUrl + "')";
+  applyViewerTransform();
+  v.style.display = 'flex';
+  warn.style.display = 'block';
+  setTimeout(() => { warn.style.display = 'none'; }, 3500);
+  // F12 / devtools 偵測(用視窗內外高度差)
+  startDevtoolsCheck();
+  // 偵測原訊息被焚毀 → 自動關閉
+  startMsgLiveCheck();
+}
+function closeImageViewer(){
+  const v = document.getElementById('img-viewer');
+  const content = document.getElementById('img-viewer-content');
+  if(v) v.style.display = 'none';
+  if(content) content.style.backgroundImage = '';
+  viewerCurrentMsgEl = null;
+  stopDevtoolsCheck();
+  stopMsgLiveCheck();
+}
+function applyViewerTransform(){
+  const content = document.getElementById('img-viewer-content');
+  const zoomText = document.getElementById('img-viewer-zoom');
+  if(!content) return;
+  content.style.transform = 'translate(' + viewerPanX + 'px,' + viewerPanY + 'px) scale(' + viewerZoom + ')';
+  if(zoomText) zoomText.textContent = Math.round(viewerZoom * 100) + '%';
+}
+function viewerZoomIn(){ viewerZoom = Math.min(5, viewerZoom + 0.25); applyViewerTransform(); }
+function viewerZoomOut(){ viewerZoom = Math.max(0.25, viewerZoom - 0.25); if(viewerZoom <= 1){ viewerPanX = 0; viewerPanY = 0; } applyViewerTransform(); }
+function viewerReset(){ viewerZoom = 1; viewerPanX = 0; viewerPanY = 0; applyViewerTransform(); }
+
+// 滑鼠拖曳 + 滾輪縮放
+(function bindViewer(){
+  const wait = setInterval(() => {
+    const stage = document.getElementById('img-viewer-stage');
+    if(!stage) return;
+    clearInterval(wait);
+    let dragging = false, lastX = 0, lastY = 0;
+    stage.addEventListener('mousedown', (e) => {
+      if(viewerZoom <= 1) return;
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      stage.classList.add('dragging');
+    });
+    document.addEventListener('mousemove', (e) => {
+      if(!dragging) return;
+      viewerPanX += e.clientX - lastX;
+      viewerPanY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      applyViewerTransform();
+    });
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      const st = document.getElementById('img-viewer-stage');
+      if(st) st.classList.remove('dragging');
+    });
+    stage.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if(e.deltaY < 0) viewerZoomIn(); else viewerZoomOut();
+    }, {passive: false});
+    stage.addEventListener('click', (e) => {
+      // 點黑色區域(非圖片中心)→ 關閉
+      if(e.target === stage) closeImageViewer();
+    });
+    // ESC 關閉
+    document.addEventListener('keydown', (e) => {
+      const v = document.getElementById('img-viewer');
+      if(v && v.style.display !== 'none' && e.key === 'Escape') closeImageViewer();
+    });
+    // 禁用右鍵(基本防另存)
+    stage.addEventListener('contextmenu', (e) => e.preventDefault());
+  }, 100);
+})();
+
+// F12 偵測(用視窗外框大小差:開啟 devtools 會讓外框 > 內部)
+function startDevtoolsCheck(){
+  stopDevtoolsCheck();
+  viewerDevtoolsCheckTimer = setInterval(() => {
+    const threshold = 160;
+    const widthGap = window.outerWidth - window.innerWidth;
+    const heightGap = window.outerHeight - window.innerHeight;
+    if(widthGap > threshold || heightGap > threshold){
+      const warn = document.getElementById('img-viewer-warn');
+      if(warn){
+        warn.textContent = '⚠ 偵測到開發者工具 · 請勿擷取內容';
+        warn.style.display = 'block';
+      }
+    }
+  }, 800);
+}
+function stopDevtoolsCheck(){
+  if(viewerDevtoolsCheckTimer){ clearInterval(viewerDevtoolsCheckTimer); viewerDevtoolsCheckTimer = null; }
+}
+// 偵測原訊息 DOM 是否還在(被焚毀 → 自動關閉)
+let msgLiveCheckTimer = null;
+function startMsgLiveCheck(){
+  stopMsgLiveCheck();
+  msgLiveCheckTimer = setInterval(() => {
+    if(!viewerCurrentMsgEl || !document.body.contains(viewerCurrentMsgEl)){
+      closeImageViewer();
+    }
+  }, 500);
+}
+function stopMsgLiveCheck(){
+  if(msgLiveCheckTimer){ clearInterval(msgLiveCheckTimer); msgLiveCheckTimer = null; }
+}
+
 
 // ─── E2E 加密 (AES-256-GCM, key 派生自房間密碼) ───
 // 優先使用 Web Crypto API (HTTPS / localhost);否則 fallback 到純 JS 實作
@@ -2602,10 +3383,22 @@ function stopPolling() {
 
 async function handleEvent(d) {
   if (d.type === 'chat') {
-    let text;
-    try { text = await decryptText(d.encrypted); }
+    let text = '', image = null;
+    try {
+      const raw = await decryptText(d.encrypted);
+      // 新格式:JSON({text, image});舊格式:純 string
+      if (raw && raw.length > 0 && raw.charAt(0) === '{') {
+        try {
+          const obj = JSON.parse(raw);
+          text = obj.text || '';
+          image = obj.image || null;
+        } catch(e) { text = raw; }
+      } else {
+        text = raw;
+      }
+    }
     catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
-    addMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders);
+    addMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders, image);
   }
   else if (d.type === 'system') addSys(d.text);
   else if (d.type === 'burnUpdate') {
@@ -2842,17 +3635,27 @@ function updateReadIndicator(msgId){
   ind.appendChild(namesSpan);
 }
 
-function addMsg(sender, text, isMe, msgId, expectedReaders){
+function addMsg(sender, text, isMe, msgId, expectedReaders, image){
   const m = document.getElementById('msgs');
   const d = document.createElement('div');
   d.className = 'msg ' + (isMe ? 'me' : 'other');
   if(msgId) d.setAttribute('data-msg-id', msgId);
-  // 產生遮罩字串:依文字長度產生 █ 序列(最短 4 塊,最長 30 塊)
-  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2)));
+  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2) || 4));
   const mask = '█'.repeat(maskLen);
-  d.innerHTML = '<div class="sender">' + escHtml(sender) +
-    '</div><div class="bubble"><span class="text-content" data-mask="' + mask + '">' +
-    escHtml(text) + '</span></div>';
+  const bubbleInner = '<div class="sender">' + escHtml(sender) +
+    '</div><div class="bubble">' +
+    (text ? '<span class="text-content" data-mask="' + mask + '">' + escHtml(text) + '</span>' : '') +
+    '</div>';
+  d.innerHTML = bubbleInner;
+  // 若有圖片:以 background-image 形式附加(防右鍵另存)
+  if(image){
+    const imgDiv = document.createElement('div');
+    imgDiv.className = 'msg-image';
+    imgDiv.style.backgroundImage = "url('" + image + "')";
+    imgDiv.addEventListener('click', () => openImageViewer(image, d));
+    imgDiv.addEventListener('contextmenu', (e) => e.preventDefault());
+    d.querySelector('.bubble').appendChild(imgDiv);
+  }
   m.appendChild(d); m.scrollTop = m.scrollHeight;
 
   // 倒數觸發邏輯
@@ -2931,22 +3734,29 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').
 async function send(){
   const i = document.getElementById('mi');
   const text = i.value.trim();
-  if(!text) return;
+  // 文字或圖片任一存在即可發送
+  if(!text && !pendingImage) return;
   if(!authToken){
     addSys('⚠ 尚未連線,無法發送');
     return;
   }
-  i.value = ''; // 立即清空,避免重複送
+  const imgToSend = pendingImage;
+  i.value = '';
+  clearImagePreview();
   try {
-    const enc = await encryptText(text);
+    // 有圖片時打包成 JSON;純文字依舊送 string(向後相容)
+    const payload = imgToSend ? JSON.stringify({text: text, image: imgToSend}) : text;
+    const enc = await encryptText(payload);
     const ok = await apiSend({type:'chat', encrypted: enc});
     if(!ok){
-      addSys('⚠ 傳送失敗(網路不穩?)');
-      i.value = text; // 還原
+      addSys('⚠ 傳送失敗(網路不穩或圖片太大?)');
+      i.value = text;
+      if(imgToSend){ pendingImage = imgToSend; document.getElementById('img-preview').style.display = 'flex'; }
     }
   } catch(err){
     addSys('⚠ 加密失敗:' + (err.message || err));
     i.value = text;
+    if(imgToSend){ pendingImage = imgToSend; document.getElementById('img-preview').style.display = 'flex'; }
   }
 }
 
@@ -3239,6 +4049,63 @@ function getWebviewContent(serverUrl) {
   body.clean-mode #send-btn { font-size: 0; padding: 8px 14px; }
   body.clean-mode #send-btn::after { content: '→'; font-size: 16px; }
   body.clean-mode .readby .names { display: none; }
+
+  /* Emoji + 圖片按鈕 */
+  #emoji-toggle,#img-attach { background: transparent !important; border: 1px solid #333 !important;
+                              cursor: pointer; padding: 4px 8px !important; border-radius: 3px;
+                              font-size: 16px; flex-shrink: 0; transition: .15s; color: #e0e0e0 !important; }
+  #emoji-toggle:hover,#img-attach:hover { background: #1a0a00 !important; border-color: #ff4500 !important; }
+  #emoji-toggle.active { color: #ff4500 !important; border-color: #ff4500 !important; background: rgba(255,69,0,.1) !important; }
+
+  /* Emoji 面板 */
+  #emoji-panel { position: fixed; bottom: 68px; left: 16px; width: 300px; max-width: 92vw;
+                 background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 8px;
+                 z-index: 999; box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+  #emoji-search { width: 100%; background: #0d0d0d; border: 1px solid #333; color: #e0e0e0;
+                  padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none;
+                  box-sizing: border-box; margin-bottom: 6px; }
+  #emoji-search:focus { border-color: #ff4500; }
+  #emoji-tabs { display: flex; gap: 4px; border-bottom: 1px solid #333; padding-bottom: 6px; margin-bottom: 6px; }
+  #emoji-tabs .tab { cursor: pointer; padding: 3px 7px; border-radius: 3px; font-size: 15px; opacity: .5; }
+  #emoji-tabs .tab:hover { opacity: .9; background: #0d0d0d; }
+  #emoji-tabs .tab.active { opacity: 1; background: #0d0d0d; box-shadow: inset 0 -2px 0 #ff4500; }
+  #emoji-grid { display: grid; grid-template-columns: repeat(8,1fr); gap: 2px; max-height: 220px; overflow-y: auto; }
+  #emoji-grid .emoji-cell { cursor: pointer; padding: 4px; text-align: center; font-size: 20px; border-radius: 3px; user-select: none; }
+  #emoji-grid .emoji-cell:hover { background: #ff4500; transform: scale(1.15); }
+
+  /* 圖片預覽 */
+  #img-preview { position: fixed; bottom: 68px; right: 16px; background: #1a1a1a; border: 1px solid #ff4500;
+                 border-radius: 6px; padding: 8px; display: flex; align-items: center; gap: 8px; z-index: 999;
+                 box-shadow: 0 4px 20px rgba(0,0,0,.5); }
+  #img-preview #img-preview-thumb { max-width: 80px; max-height: 80px; border-radius: 3px; object-fit: cover; }
+  #img-preview #img-preview-size { font-size: 10px; color: #888; }
+  #img-preview button { background: transparent; border: 1px solid #333; color: #ff4444; cursor: pointer;
+                        width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; }
+  #img-preview button:hover { background: #ff4444; color: white; }
+
+  /* 訊息內圖片 */
+  .msg-image { width: 100%; max-width: 280px; aspect-ratio: 4/3; background-size: contain;
+               background-position: left center; background-repeat: no-repeat; margin-top: 6px;
+               border-radius: 4px; cursor: zoom-in; border: 1px solid #333; }
+  .msg.mine .msg-image { background-position: right center; }
+  #messages.redacted .msg:not(.system) .msg-image { filter: blur(18px); }
+
+  /* 全螢幕 viewer */
+  #img-viewer { position: fixed; inset: 0; background: rgba(0,0,0,.96); z-index: 9999; display: flex; flex-direction: column; }
+  #img-viewer-stage { flex: 1; overflow: hidden; position: relative; cursor: grab;
+                      display: flex; align-items: center; justify-content: center; }
+  #img-viewer-stage.dragging { cursor: grabbing; }
+  #img-viewer-content { width: 100%; height: 100%; background-size: contain; background-position: center;
+                        background-repeat: no-repeat; transition: transform .1s ease-out; transform-origin: center; }
+  #img-viewer-toolbar { padding: 10px 20px; display: flex; gap: 8px; align-items: center;
+                        justify-content: center; background: rgba(0,0,0,.5); border-top: 1px solid #222; }
+  #img-viewer-toolbar button { background: transparent; border: 1px solid #555; color: #ccc; cursor: pointer;
+                               padding: 6px 14px; border-radius: 4px; font-size: 14px; min-width: 44px; }
+  #img-viewer-toolbar button:hover { background: #333; color: white; border-color: #888; }
+  #img-viewer-zoom { color: #ccc; font-size: 12px; min-width: 50px; text-align: center; }
+  #img-viewer-warn { position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+                     background: rgba(255,69,0,.15); border: 1px solid #ff4500; color: #ff4500;
+                     padding: 6px 14px; border-radius: 20px; font-size: 11px; letter-spacing: .5px; }
   #auth-overlay { position: fixed; inset: 0; background: #0d0d0d;
                   display: flex; align-items: center; justify-content: center;
                   flex-direction: column; gap: 12px; z-index: 100; }
@@ -3291,6 +4158,28 @@ function getWebviewContent(serverUrl) {
   <input type="text" id="msg-input" placeholder="Type a message... (Enter to send)" />
   <button id="send-btn" onclick="sendMsg()">Send</button>
 </div>
+<div id="emoji-panel" style="display:none">
+  <input type="text" id="emoji-search" placeholder="Search emoji..." />
+  <div id="emoji-tabs"></div>
+  <div id="emoji-grid"></div>
+</div>
+<div id="img-preview" style="display:none">
+  <img id="img-preview-thumb" />
+  <span id="img-preview-size"></span>
+  <button onclick="clearImagePreview()" title="Cancel">✕</button>
+</div>
+<div id="img-viewer" style="display:none">
+  <div id="img-viewer-stage"><div id="img-viewer-content"></div></div>
+  <div id="img-viewer-toolbar">
+    <button onclick="viewerZoomOut()" title="Zoom out">−</button>
+    <span id="img-viewer-zoom">100%</span>
+    <button onclick="viewerZoomIn()" title="Zoom in">+</button>
+    <button onclick="viewerReset()" title="Reset">Reset</button>
+    <button onclick="closeImageViewer()" title="Close (Esc)">✕</button>
+  </div>
+  <div id="img-viewer-warn" style="display:none">⚠ Do not screenshot or share · image auto-destroyed</div>
+</div>
+<input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
 
 <script>
 const RAW_URL = '${serverUrl}';
@@ -3321,6 +4210,288 @@ let inputFocused = false;
 let heartbeatTimer = null;
 const HEARTBEAT_INTERVAL = 15000;
 const vscodeApi = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+
+// ─── Emoji Picker 資料 + 功能 ──────────────────────────────────
+const EMOJI_DATA=[{"e":"😀","k":"grin smile happy 笑 開心"},{"e":"😃","k":"smile happy 開心 笑"},{"e":"😄","k":"laugh happy 大笑 開心"},{"e":"😁","k":"grin teeth 露齒 笑"},{"e":"😆","k":"laugh happy 哈哈"},{"e":"😅","k":"sweat laugh 尷尬 笑"},{"e":"🤣","k":"rofl laugh 笑翻 笑哭"},{"e":"😂","k":"joy laugh tears 笑哭"},{"e":"🙂","k":"slight smile 微笑"},{"e":"🙃","k":"upside flip 倒立 倒過來"},{"e":"😉","k":"wink 眨眼"},{"e":"😊","k":"blush smile 害羞 微笑"},{"e":"😇","k":"angel halo 天使"},{"e":"🥰","k":"love heart 愛心"},{"e":"😍","k":"heart eyes 愛心眼"},{"e":"🤩","k":"star eyes 星星眼 驚嘆"},{"e":"😘","k":"kiss 親親 飛吻"},{"e":"😗","k":"kiss 吻"},{"e":"☺️","k":"smile blush 微笑"},{"e":"😚","k":"kiss closed 閉眼親"},{"e":"😙","k":"kiss smile 親"},{"e":"🥲","k":"tear smile 含淚笑"},{"e":"😋","k":"yum tongue 好吃"},{"e":"😛","k":"tongue 吐舌"},{"e":"😜","k":"wink tongue 調皮"},{"e":"🤪","k":"zany crazy 瘋狂"},{"e":"😝","k":"tongue closed 扮鬼臉"},{"e":"🤑","k":"money mouth 錢 貪財"},{"e":"🤗","k":"hug 擁抱"},{"e":"🤭","k":"hand mouth 偷笑 驚"},{"e":"🤫","k":"shush quiet 噓 安靜"},{"e":"🤔","k":"thinking 思考"},{"e":"🤐","k":"zipper mouth 閉嘴"},{"e":"🤨","k":"raised eyebrow 懷疑"},{"e":"😐","k":"neutral 面無表情"},{"e":"😑","k":"expressionless 無奈"},{"e":"😶","k":"no mouth 無言"},{"e":"😏","k":"smirk 奸笑"},{"e":"😒","k":"unamused 無聊 不爽"},{"e":"🙄","k":"roll eyes 翻白眼"},{"e":"😬","k":"grimace 尷尬"},{"e":"🤥","k":"lying nose 說謊"},{"e":"😌","k":"relieved 放鬆"},{"e":"😔","k":"pensive 難過 沉思"},{"e":"😪","k":"sleepy 想睡"},{"e":"🤤","k":"drooling 流口水"},{"e":"😴","k":"sleeping 睡覺"},{"e":"😷","k":"mask 口罩 生病"},{"e":"🤒","k":"thermometer sick 發燒"},{"e":"🤕","k":"head bandage 受傷"},{"e":"🤢","k":"nauseated 想吐"},{"e":"🤮","k":"vomit 吐"},{"e":"🤧","k":"sneeze 打噴嚏"},{"e":"🥵","k":"hot 熱"},{"e":"🥶","k":"cold 冷"},{"e":"🥴","k":"woozy 醉"},{"e":"😵","k":"dizzy 暈"},{"e":"🤯","k":"exploding 爆炸 震驚"},{"e":"🤠","k":"cowboy 牛仔"},{"e":"🥳","k":"party 派對 慶生"},{"e":"😎","k":"sunglasses cool 酷 墨鏡"},{"e":"🤓","k":"nerd 書呆子"},{"e":"🧐","k":"monocle 單片眼鏡"},{"e":"😕","k":"confused 困惑"},{"e":"😟","k":"worried 擔心"},{"e":"🙁","k":"frown 皺眉"},{"e":"☹️","k":"frowning 難過"},{"e":"😮","k":"surprised 驚訝"},{"e":"😯","k":"hushed 驚"},{"e":"😲","k":"astonished 驚訝"},{"e":"😳","k":"flushed 臉紅"},{"e":"🥺","k":"pleading 拜託"},{"e":"😦","k":"frown open 驚慌"},{"e":"😧","k":"anguished 痛苦"},{"e":"😨","k":"fearful 害怕"},{"e":"😰","k":"cold sweat 冷汗"},{"e":"😥","k":"sad relieved 難過"},{"e":"😢","k":"cry 哭"},{"e":"😭","k":"loud cry 大哭"},{"e":"😱","k":"scream 尖叫"},{"e":"😖","k":"confounded 糾結"},{"e":"😣","k":"persevering 努力"},{"e":"😞","k":"disappointed 失望"},{"e":"😓","k":"downcast sweat 汗顏"},{"e":"😩","k":"weary 累"},{"e":"😫","k":"tired 疲累"},{"e":"🥱","k":"yawn 哈欠"},{"e":"😤","k":"triumph angry 生氣 哼"},{"e":"😡","k":"pout rage 憤怒"},{"e":"😠","k":"angry 生氣"},{"e":"🤬","k":"cursing 罵人 髒話"},{"e":"😈","k":"devil smile 壞笑"},{"e":"👿","k":"devil angry 惡魔"},{"e":"💀","k":"skull 骷髏 死"},{"e":"👻","k":"ghost 鬼 幽靈"},{"e":"👽","k":"alien 外星人"},{"e":"🤖","k":"robot 機器人"},{"e":"💩","k":"poop 便便"},{"e":"👋","k":"wave hi 揮手 你好"},{"e":"🤚","k":"raised back 舉手"},{"e":"🖐️","k":"hand spread 五指張開"},{"e":"✋","k":"raised 舉手 停"},{"e":"🖖","k":"vulcan 瓦肯"},{"e":"👌","k":"ok perfect 好 完美"},{"e":"🤌","k":"pinched 捏"},{"e":"🤏","k":"pinch small 一點點"},{"e":"✌️","k":"peace victory 勝利 二"},{"e":"🤞","k":"crossed fingers 祈禱 希望"},{"e":"🤟","k":"love you 我愛你"},{"e":"🤘","k":"rock horns 搖滾"},{"e":"🤙","k":"call me 打電話"},{"e":"👈","k":"point left 指左"},{"e":"👉","k":"point right 指右"},{"e":"👆","k":"point up 指上"},{"e":"🖕","k":"middle finger 中指"},{"e":"👇","k":"point down 指下"},{"e":"☝️","k":"point up 食指"},{"e":"👍","k":"thumbs up 讚 好"},{"e":"👎","k":"thumbs down 噓 差"},{"e":"✊","k":"fist 拳頭"},{"e":"👊","k":"punch 揍"},{"e":"🤛","k":"left fist 拳"},{"e":"🤜","k":"right fist 拳"},{"e":"👏","k":"clap 拍手 鼓掌"},{"e":"🙌","k":"praise 舉手 萬歲"},{"e":"👐","k":"open hands 雙手"},{"e":"🤲","k":"palms up 攤手"},{"e":"🤝","k":"handshake 握手"},{"e":"🙏","k":"pray please 拜託 祈禱"},{"e":"✍️","k":"writing 寫字"},{"e":"💅","k":"nail polish 指甲油"},{"e":"🤳","k":"selfie 自拍"},{"e":"💪","k":"muscle 肌肉 加油"},{"e":"🦾","k":"mechanical arm 機械手"},{"e":"🦿","k":"mechanical leg 機械腿"},{"e":"🦵","k":"leg 腿"},{"e":"🦶","k":"foot 腳"},{"e":"👂","k":"ear 耳朵"},{"e":"❤️","k":"red heart 愛心 紅色"},{"e":"🧡","k":"orange heart 橘色愛心"},{"e":"💛","k":"yellow heart 黃色愛心"},{"e":"💚","k":"green heart 綠色愛心"},{"e":"💙","k":"blue heart 藍色愛心"},{"e":"💜","k":"purple heart 紫色愛心"},{"e":"🖤","k":"black heart 黑色愛心"},{"e":"🤍","k":"white heart 白色愛心"},{"e":"🤎","k":"brown heart 棕色愛心"},{"e":"💔","k":"broken heart 心碎"},{"e":"❣️","k":"heart exclamation 愛心驚嘆"},{"e":"💕","k":"two hearts 雙愛心"},{"e":"💞","k":"revolving hearts 旋轉愛心"},{"e":"💓","k":"beating heart 愛心跳動"},{"e":"💗","k":"growing heart 愛心放大"},{"e":"💖","k":"sparkling heart 閃亮愛心"},{"e":"💘","k":"cupid arrow 丘比特之箭"},{"e":"💝","k":"heart gift 禮物愛心"},{"e":"💟","k":"heart decoration 愛心"},{"e":"♥️","k":"suit heart 愛心"},{"e":"💌","k":"love letter 情書"},{"e":"😻","k":"heart eyes cat 愛心貓"},{"e":"💑","k":"couple heart 情侶"},{"e":"💏","k":"kiss couple 接吻"},{"e":"🎉","k":"party popper 慶祝 派對"},{"e":"🎊","k":"confetti 彩紙"},{"e":"🎂","k":"cake 蛋糕 生日"},{"e":"🎁","k":"gift present 禮物"},{"e":"🎈","k":"balloon 氣球"},{"e":"🎆","k":"fireworks 煙火"},{"e":"🎇","k":"sparkler 仙女棒"},{"e":"✨","k":"sparkles 閃亮"},{"e":"⭐","k":"star 星星"},{"e":"🌟","k":"glowing star 閃亮星星"},{"e":"💫","k":"dizzy stars 星星"},{"e":"🎀","k":"ribbon 蝴蝶結"},{"e":"🎗️","k":"reminder ribbon 紀念緞帶"},{"e":"🏆","k":"trophy 獎盃"},{"e":"🥇","k":"gold medal 金牌"},{"e":"🥈","k":"silver medal 銀牌"},{"e":"🥉","k":"bronze medal 銅牌"},{"e":"🎖️","k":"military medal 勳章"},{"e":"👑","k":"crown 皇冠"},{"e":"💎","k":"diamond 鑽石"},{"e":"🥂","k":"clinking glasses 乾杯"},{"e":"🍾","k":"champagne 香檳"},{"e":"🎵","k":"music note 音符"},{"e":"🎶","k":"music notes 音符"},{"e":"🍎","k":"red apple 蘋果"},{"e":"🍊","k":"orange 柳橙"},{"e":"🍋","k":"lemon 檸檬"},{"e":"🍌","k":"banana 香蕉"},{"e":"🍉","k":"watermelon 西瓜"},{"e":"🍇","k":"grapes 葡萄"},{"e":"🍓","k":"strawberry 草莓"},{"e":"🫐","k":"blueberries 藍莓"},{"e":"🍈","k":"melon 哈密瓜"},{"e":"🍒","k":"cherries 櫻桃"},{"e":"🍑","k":"peach 桃子"},{"e":"🥭","k":"mango 芒果"},{"e":"🍍","k":"pineapple 鳳梨"},{"e":"🥝","k":"kiwi 奇異果"},{"e":"🥥","k":"coconut 椰子"},{"e":"🍅","k":"tomato 番茄"},{"e":"🥑","k":"avocado 酪梨"},{"e":"🍆","k":"eggplant 茄子"},{"e":"🌽","k":"corn 玉米"},{"e":"🥕","k":"carrot 紅蘿蔔"},{"e":"🍞","k":"bread 麵包"},{"e":"🥐","k":"croissant 可頌"},{"e":"🥖","k":"baguette 法國麵包"},{"e":"🥨","k":"pretzel 椒鹽脆餅"},{"e":"🧀","k":"cheese 起司"},{"e":"🍳","k":"egg fried 煎蛋"},{"e":"🥞","k":"pancakes 鬆餅"},{"e":"🥓","k":"bacon 培根"},{"e":"🥩","k":"steak 牛排"},{"e":"🍗","k":"chicken drumstick 雞腿"},{"e":"🍖","k":"meat bone 肉"},{"e":"🌭","k":"hotdog 熱狗"},{"e":"🍔","k":"hamburger 漢堡"},{"e":"🍟","k":"fries 薯條"},{"e":"🍕","k":"pizza 披薩"},{"e":"🌮","k":"taco 墨西哥捲餅"},{"e":"🌯","k":"burrito 墨西哥捲"},{"e":"🥗","k":"salad 沙拉"},{"e":"🍝","k":"spaghetti 義大利麵"},{"e":"🍜","k":"ramen 拉麵"},{"e":"🍱","k":"bento 便當"},{"e":"🍣","k":"sushi 壽司"},{"e":"🍤","k":"shrimp 炸蝦"},{"e":"🍙","k":"rice ball 飯糰"},{"e":"🍚","k":"rice 白飯"},{"e":"🍘","k":"rice cracker 仙貝"},{"e":"🍢","k":"oden 關東煮"},{"e":"🍡","k":"dango 糯米糰"},{"e":"🥟","k":"dumpling 餃子"},{"e":"🍦","k":"ice cream soft 霜淇淋"},{"e":"🍧","k":"shaved ice 剉冰"},{"e":"🍨","k":"ice cream 冰淇淋"},{"e":"🍩","k":"donut 甜甜圈"},{"e":"🍪","k":"cookie 餅乾"},{"e":"🎂","k":"birthday cake 生日蛋糕"},{"e":"🍰","k":"cake 蛋糕"},{"e":"🧁","k":"cupcake 杯子蛋糕"},{"e":"🥧","k":"pie 派"},{"e":"🍫","k":"chocolate 巧克力"},{"e":"🍬","k":"candy 糖果"},{"e":"🍭","k":"lollipop 棒棒糖"},{"e":"🍮","k":"pudding 布丁"},{"e":"🍯","k":"honey 蜂蜜"},{"e":"☕","k":"coffee 咖啡"},{"e":"🍵","k":"tea 茶"},{"e":"🧋","k":"bubble tea 珍珠奶茶"},{"e":"🍺","k":"beer 啤酒"},{"e":"🍻","k":"cheers beer 乾杯"},{"e":"🍷","k":"wine 紅酒"},{"e":"🍸","k":"cocktail 雞尾酒"},{"e":"🍹","k":"tropical 熱帶飲料"},{"e":"🥤","k":"cup drink 飲料"},{"e":"🐶","k":"dog face 小狗"},{"e":"🐱","k":"cat face 小貓"},{"e":"🐭","k":"mouse 老鼠"},{"e":"🐹","k":"hamster 倉鼠"},{"e":"🐰","k":"rabbit face 兔子"},{"e":"🦊","k":"fox 狐狸"},{"e":"🐻","k":"bear 熊"},{"e":"🐼","k":"panda 熊貓"},{"e":"🐨","k":"koala 無尾熊"},{"e":"🐯","k":"tiger 老虎"},{"e":"🦁","k":"lion 獅子"},{"e":"🐮","k":"cow 牛"},{"e":"🐷","k":"pig 豬"},{"e":"🐸","k":"frog 青蛙"},{"e":"🐵","k":"monkey face 猴子"},{"e":"🙈","k":"see no evil 猴子摀眼"},{"e":"🙉","k":"hear no evil 猴子摀耳"},{"e":"🙊","k":"speak no evil 猴子摀嘴"},{"e":"🐒","k":"monkey 猴子"},{"e":"🐔","k":"chicken 雞"},{"e":"🐧","k":"penguin 企鵝"},{"e":"🐦","k":"bird 鳥"},{"e":"🐤","k":"baby chick 小雞"},{"e":"🦆","k":"duck 鴨子"},{"e":"🦅","k":"eagle 老鷹"},{"e":"🦉","k":"owl 貓頭鷹"},{"e":"🦇","k":"bat 蝙蝠"},{"e":"🐺","k":"wolf 狼"},{"e":"🐗","k":"boar 野豬"},{"e":"🐴","k":"horse face 馬"},{"e":"🦄","k":"unicorn 獨角獸"},{"e":"🐝","k":"bee 蜜蜂"},{"e":"🐛","k":"bug 毛毛蟲"},{"e":"🦋","k":"butterfly 蝴蝶"},{"e":"🐌","k":"snail 蝸牛"},{"e":"🐞","k":"ladybug 瓢蟲"},{"e":"🐜","k":"ant 螞蟻"},{"e":"🕷️","k":"spider 蜘蛛"},{"e":"🐢","k":"turtle 烏龜"},{"e":"🐍","k":"snake 蛇"},{"e":"🐙","k":"octopus 章魚"},{"e":"🦑","k":"squid 魷魚"},{"e":"🦐","k":"shrimp 蝦"},{"e":"🐟","k":"fish 魚"},{"e":"🐬","k":"dolphin 海豚"},{"e":"🐳","k":"whale 鯨魚"},{"e":"🦈","k":"shark 鯊魚"},{"e":"⚽","k":"soccer 足球"},{"e":"🏀","k":"basketball 籃球"},{"e":"🏈","k":"football 美式足球"},{"e":"⚾","k":"baseball 棒球"},{"e":"🎾","k":"tennis 網球"},{"e":"🏐","k":"volleyball 排球"},{"e":"🎱","k":"billiards 撞球"},{"e":"🏓","k":"ping pong 桌球"},{"e":"🏸","k":"badminton 羽球"},{"e":"🎯","k":"dart 飛鏢 目標"},{"e":"🎲","k":"dice 骰子"},{"e":"🎮","k":"game 電動"},{"e":"🕹️","k":"joystick 搖桿"},{"e":"🎨","k":"palette 調色盤"},{"e":"🎬","k":"clapperboard 場記板"},{"e":"📷","k":"camera 相機"},{"e":"📹","k":"video camera 攝影機"},{"e":"🎥","k":"movie camera 電影"},{"e":"📺","k":"tv 電視"},{"e":"📱","k":"phone 手機"},{"e":"💻","k":"laptop 筆電"},{"e":"🖥️","k":"desktop 桌電"},{"e":"⌨️","k":"keyboard 鍵盤"},{"e":"🖱️","k":"mouse 滑鼠"},{"e":"💾","k":"floppy 磁碟片"},{"e":"💿","k":"cd CD"},{"e":"📀","k":"dvd DVD"},{"e":"🔋","k":"battery 電池"},{"e":"🔌","k":"plug 插頭"},{"e":"💡","k":"bulb 燈泡 想法"},{"e":"🔦","k":"flashlight 手電筒"},{"e":"🕯️","k":"candle 蠟燭"},{"e":"📚","k":"books 書本"},{"e":"📖","k":"open book 開書"},{"e":"📝","k":"memo 筆記"},{"e":"✏️","k":"pencil 鉛筆"},{"e":"✒️","k":"pen 鋼筆"},{"e":"📎","k":"paperclip 迴紋針"},{"e":"📌","k":"pushpin 圖釘"},{"e":"📍","k":"round pin 地點"},{"e":"🔑","k":"key 鑰匙"},{"e":"🔒","k":"lock 鎖"},{"e":"🔓","k":"unlock 開鎖"},{"e":"🔔","k":"bell 鈴鐺"},{"e":"🔕","k":"bell mute 靜音"},{"e":"⏰","k":"alarm 鬧鐘"},{"e":"⏳","k":"hourglass 沙漏"},{"e":"☀️","k":"sun 太陽"},{"e":"🌙","k":"moon 月亮"},{"e":"⭐","k":"star 星"},{"e":"🌈","k":"rainbow 彩虹"},{"e":"☁️","k":"cloud 雲"},{"e":"⛅","k":"cloud sun 多雲"},{"e":"🌧️","k":"rain 下雨"},{"e":"⛈️","k":"thunderstorm 雷雨"},{"e":"❄️","k":"snowflake 雪"},{"e":"🔥","k":"fire 火 讚"},{"e":"💧","k":"drop 水滴"},{"e":"🌊","k":"wave 海浪"},{"e":"🚀","k":"rocket 火箭"},{"e":"✈️","k":"airplane 飛機"},{"e":"🚗","k":"car 汽車"},{"e":"🏠","k":"house 房子"},{"e":"⛔","k":"no entry 禁止"},{"e":"✅","k":"check 打勾"},{"e":"❌","k":"cross 叉"},{"e":"❓","k":"question 問號"},{"e":"❗","k":"exclamation 驚嘆"},{"e":"💯","k":"hundred 100 滿分"},{"e":"🎵","k":"music note 音符"}];
+const EMOJI_CATS=[{"id":"face","icon":"😀","title":"Faces","start":0,"end":98},{"id":"hand","icon":"👋","title":"Hands","start":98,"end":138},{"id":"heart","icon":"❤️","title":"Hearts","start":138,"end":162},{"id":"celebrate","icon":"🎉","title":"Party","start":162,"end":186},{"id":"food","icon":"🍎","title":"Food","start":186,"end":258},{"id":"animal","icon":"🐶","title":"Animals","start":258,"end":305},{"id":"object","icon":"⚽","title":"Objects","start":305,"end":375}];
+let emojiActiveCat = 'face';
+let pendingImage = null;
+let pendingImageSize = 0;
+
+function renderEmojiGrid(filter){
+  const grid = document.getElementById('emoji-grid');
+  if(!grid) return;
+  while(grid.firstChild) grid.removeChild(grid.firstChild);
+  let items;
+  if(filter && filter.trim().length > 0){
+    const q = filter.toLowerCase();
+    items = EMOJI_DATA.filter(x => x.k.toLowerCase().indexOf(q) !== -1 || x.e.indexOf(q) !== -1);
+  } else {
+    const cat = EMOJI_CATS.find(c => c.id === emojiActiveCat) || EMOJI_CATS[0];
+    items = EMOJI_DATA.slice(cat.start, cat.end);
+  }
+  for(const it of items){
+    const cell = document.createElement('div');
+    cell.className = 'emoji-cell';
+    cell.textContent = it.e;
+    cell.title = it.k;
+    cell.onclick = () => insertEmojiAtCursor(it.e);
+    grid.appendChild(cell);
+  }
+}
+function renderEmojiTabs(){
+  const tabs = document.getElementById('emoji-tabs');
+  if(!tabs) return;
+  while(tabs.firstChild) tabs.removeChild(tabs.firstChild);
+  for(const c of EMOJI_CATS){
+    const t = document.createElement('span');
+    t.className = 'tab' + (c.id === emojiActiveCat ? ' active' : '');
+    t.textContent = c.icon;
+    t.title = c.title;
+    t.onclick = () => {
+      emojiActiveCat = c.id;
+      const srch = document.getElementById('emoji-search');
+      if(srch) srch.value = '';
+      renderEmojiTabs();
+      renderEmojiGrid('');
+    };
+    tabs.appendChild(t);
+  }
+}
+function insertEmojiAtCursor(emoji){
+  const mi = document.getElementById('msg-input');
+  if(!mi) return;
+  const start = mi.selectionStart || mi.value.length;
+  const end = mi.selectionEnd || mi.value.length;
+  mi.value = mi.value.slice(0, start) + emoji + mi.value.slice(end);
+  mi.focus();
+  try { mi.setSelectionRange(start + emoji.length, start + emoji.length); } catch(e){}
+}
+function toggleEmojiPicker(){
+  const p = document.getElementById('emoji-panel');
+  const btn = document.getElementById('emoji-toggle');
+  if(!p) return;
+  if(p.style.display === 'none' || p.style.display === ''){
+    p.style.display = 'block';
+    if(btn) btn.classList.add('active');
+    renderEmojiTabs();
+    renderEmojiGrid('');
+    const srch = document.getElementById('emoji-search');
+    if(srch){ srch.value = ''; srch.focus(); }
+  } else {
+    p.style.display = 'none';
+    if(btn) btn.classList.remove('active');
+  }
+}
+document.addEventListener('click', (e) => {
+  const p = document.getElementById('emoji-panel');
+  const btn = document.getElementById('emoji-toggle');
+  if(!p || p.style.display === 'none') return;
+  if(p.contains(e.target) || (btn && btn.contains(e.target))) return;
+  p.style.display = 'none';
+  if(btn) btn.classList.remove('active');
+});
+(function bindEmojiSearch(){
+  const wait = setInterval(() => {
+    const s = document.getElementById('emoji-search');
+    if(!s) return;
+    clearInterval(wait);
+    s.oninput = () => renderEmojiGrid(s.value);
+  }, 100);
+})();
+
+// ─── 圖片上傳 ──────────────────────────────────────────────
+const IMG_MAX_BYTES = 800 * 1024;
+const IMG_MAX_DIM = 1280;
+
+async function handleImageFile(file){
+  if(!file) return;
+  if(['image/jpeg','image/png','image/webp'].indexOf(file.type) === -1){
+    alert('Only JPG / PNG / WebP supported');
+    return;
+  }
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error('load failed'));
+      im.src = dataUrl;
+    });
+    let w = img.width, h = img.height;
+    if(w > IMG_MAX_DIM || h > IMG_MAX_DIM){
+      if(w > h){ h = Math.round(h * IMG_MAX_DIM / w); w = IMG_MAX_DIM; }
+      else { w = Math.round(w * IMG_MAX_DIM / h); h = IMG_MAX_DIM; }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    const compressed = canvas.toDataURL('image/jpeg', 0.7);
+    const sizeBytes = Math.ceil(compressed.length * 3 / 4);
+    if(sizeBytes > IMG_MAX_BYTES){
+      const again = canvas.toDataURL('image/jpeg', 0.5);
+      const sz2 = Math.ceil(again.length * 3 / 4);
+      if(sz2 > IMG_MAX_BYTES){ alert('Image too large (still over 800 KB after compression), please pick a smaller one'); return; }
+      pendingImage = again; pendingImageSize = sz2;
+    } else {
+      pendingImage = compressed; pendingImageSize = sizeBytes;
+    }
+    const prev = document.getElementById('img-preview');
+    const thumb = document.getElementById('img-preview-thumb');
+    const szEl = document.getElementById('img-preview-size');
+    thumb.src = pendingImage;
+    szEl.textContent = Math.round(pendingImageSize / 1024) + ' KB';
+    prev.style.display = 'flex';
+  } catch(e){
+    alert('Image processing failed' + ': ' + e.message);
+    pendingImage = null;
+  }
+  const inp = document.getElementById('img-file-input');
+  if(inp) inp.value = '';
+}
+function clearImagePreview(){
+  pendingImage = null;
+  pendingImageSize = 0;
+  const prev = document.getElementById('img-preview');
+  if(prev) prev.style.display = 'none';
+}
+(function bindImgInput(){
+  const wait = setInterval(() => {
+    const f = document.getElementById('img-file-input');
+    if(!f) return;
+    clearInterval(wait);
+    f.onchange = (e) => handleImageFile(e.target.files && e.target.files[0]);
+  }, 100);
+})();
+
+// ─── Fullscreen Viewer ─────────────────────────────────────
+let viewerZoom = 1;
+let viewerPanX = 0, viewerPanY = 0;
+let viewerCurrentMsgEl = null;
+let viewerDevtoolsCheckTimer = null;
+let msgLiveCheckTimer = null;
+
+function openImageViewer(dataUrl, msgEl){
+  const v = document.getElementById('img-viewer');
+  const content = document.getElementById('img-viewer-content');
+  const warn = document.getElementById('img-viewer-warn');
+  if(!v || !content) return;
+  viewerCurrentMsgEl = msgEl;
+  viewerZoom = 1; viewerPanX = 0; viewerPanY = 0;
+  content.style.backgroundImage = "url('" + dataUrl + "')";
+  applyViewerTransform();
+  v.style.display = 'flex';
+  if(warn){ warn.textContent = '⚠ Do not screenshot or share · image auto-destroyed'; warn.style.display = 'block'; }
+  setTimeout(() => { if(warn) warn.style.display = 'none'; }, 3500);
+  startDevtoolsCheck();
+  startMsgLiveCheck();
+}
+function closeImageViewer(){
+  const v = document.getElementById('img-viewer');
+  const content = document.getElementById('img-viewer-content');
+  if(v) v.style.display = 'none';
+  if(content) content.style.backgroundImage = '';
+  viewerCurrentMsgEl = null;
+  stopDevtoolsCheck();
+  stopMsgLiveCheck();
+}
+function applyViewerTransform(){
+  const content = document.getElementById('img-viewer-content');
+  const zoomText = document.getElementById('img-viewer-zoom');
+  if(!content) return;
+  content.style.transform = 'translate(' + viewerPanX + 'px,' + viewerPanY + 'px) scale(' + viewerZoom + ')';
+  if(zoomText) zoomText.textContent = Math.round(viewerZoom * 100) + '%';
+}
+function viewerZoomIn(){ viewerZoom = Math.min(5, viewerZoom + 0.25); applyViewerTransform(); }
+function viewerZoomOut(){ viewerZoom = Math.max(0.25, viewerZoom - 0.25); if(viewerZoom <= 1){ viewerPanX = 0; viewerPanY = 0; } applyViewerTransform(); }
+function viewerReset(){ viewerZoom = 1; viewerPanX = 0; viewerPanY = 0; applyViewerTransform(); }
+
+(function bindViewer(){
+  const wait = setInterval(() => {
+    const stage = document.getElementById('img-viewer-stage');
+    if(!stage) return;
+    clearInterval(wait);
+    let dragging = false, lastX = 0, lastY = 0;
+    stage.addEventListener('mousedown', (e) => {
+      if(viewerZoom <= 1) return;
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      stage.classList.add('dragging');
+    });
+    document.addEventListener('mousemove', (e) => {
+      if(!dragging) return;
+      viewerPanX += e.clientX - lastX;
+      viewerPanY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      applyViewerTransform();
+    });
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      const st = document.getElementById('img-viewer-stage');
+      if(st) st.classList.remove('dragging');
+    });
+    stage.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if(e.deltaY < 0) viewerZoomIn(); else viewerZoomOut();
+    }, {passive: false});
+    stage.addEventListener('click', (e) => {
+      if(e.target === stage) closeImageViewer();
+    });
+    document.addEventListener('keydown', (e) => {
+      const v = document.getElementById('img-viewer');
+      if(v && v.style.display !== 'none' && e.key === 'Escape') closeImageViewer();
+    });
+    stage.addEventListener('contextmenu', (e) => e.preventDefault());
+  }, 100);
+})();
+
+function startDevtoolsCheck(){
+  stopDevtoolsCheck();
+  viewerDevtoolsCheckTimer = setInterval(() => {
+    const threshold = 160;
+    if(window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold){
+      const warn = document.getElementById('img-viewer-warn');
+      if(warn){ warn.textContent = '⚠ DevTools detected · do not capture content'; warn.style.display = 'block'; }
+    }
+  }, 800);
+}
+function stopDevtoolsCheck(){ if(viewerDevtoolsCheckTimer){ clearInterval(viewerDevtoolsCheckTimer); viewerDevtoolsCheckTimer = null; } }
+function startMsgLiveCheck(){
+  stopMsgLiveCheck();
+  msgLiveCheckTimer = setInterval(() => {
+    if(!viewerCurrentMsgEl || !document.body.contains(viewerCurrentMsgEl)) closeImageViewer();
+  }, 500);
+}
+function stopMsgLiveCheck(){ if(msgLiveCheckTimer){ clearInterval(msgLiveCheckTimer); msgLiveCheckTimer = null; } }
+
+// 動態注入 emoji + 圖片按鈕到 input-area 左邊(在 clean-toggle 右邊、msg-input 前)
+(function injectInputButtons(){
+  const wait = setInterval(() => {
+    const inp = document.getElementById('input-area');
+    const mi = document.getElementById('msg-input');
+    if(!inp || !mi || document.getElementById('emoji-toggle')){ if(document.getElementById('emoji-toggle')) clearInterval(wait); return; }
+    clearInterval(wait);
+    const emojiBtn = document.createElement('button');
+    emojiBtn.id = 'emoji-toggle';
+    emojiBtn.className = 'clean-btn';
+    emojiBtn.title = 'Emoji';
+    emojiBtn.textContent = '😀';
+    emojiBtn.onclick = (e) => { e.stopPropagation(); toggleEmojiPicker(); };
+    inp.insertBefore(emojiBtn, mi);
+    const imgBtn = document.createElement('button');
+    imgBtn.id = 'img-attach';
+    imgBtn.className = 'clean-btn';
+    imgBtn.title = 'Attach image';
+    imgBtn.textContent = '📎';
+    imgBtn.onclick = () => document.getElementById('img-file-input').click();
+    inp.insertBefore(imgBtn, mi);
+  }, 200);
+})();
+
 
 // ─── E2E 加密 (AES-256-GCM) — WebCrypto + 純 JS fallback ───
 const HAS_SUBTLE = typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.importKey === 'function';
@@ -3674,10 +4845,15 @@ function stopPolling(){
 
 async function handleEvent(d){
   if(d.type === 'chat'){
-    let text;
-    try { text = await decryptText(d.encrypted); }
-    catch(err){ text = '[Cannot decrypt - wrong password or corrupted message]'; }
-    addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders);
+    let text = '', image = null;
+    try {
+      const raw = await decryptText(d.encrypted);
+      if(raw && raw.length > 0 && raw.charAt(0) === '{'){
+        try { const obj = JSON.parse(raw); text = obj.text || ''; image = obj.image || null; }
+        catch(e){ text = raw; }
+      } else { text = raw; }
+    } catch(err){ text = '[Cannot decrypt - wrong password or corrupted message]'; }
+    addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders, image);
   }
   else if(d.type === 'system') addSysMsg(d.text);
   else if(d.type === 'burnUpdate'){
@@ -3906,40 +5082,54 @@ function updateReadIndicator(msgId) {
 async function sendMsg() {
   const i = document.getElementById('msg-input');
   const text = i.value.trim();
-  if(!text) return;
+  if(!text && !pendingImage) return;
   if(!authToken){
     addSysMsg('Not connected, cannot send');
     return;
   }
+  const imgToSend = pendingImage;
   i.value = '';
+  clearImagePreview();
   try {
-    const enc = await encryptText(text);
+    const payload = imgToSend ? JSON.stringify({text: text, image: imgToSend}) : text;
+    const enc = await encryptText(payload);
     const ok = await apiSend({type: 'chat', encrypted: enc});
     if(!ok){
-      addSysMsg('Transmission failed (network unstable?)');
+      addSysMsg('Transmission failed (network unstable or image too large?)');
       i.value = text;
+      if(imgToSend){ pendingImage = imgToSend; document.getElementById('img-preview').style.display = 'flex'; }
     }
   } catch(err){
     addSysMsg('Encryption failed: ' + (err.message || err));
     i.value = text;
+    if(imgToSend){ pendingImage = imgToSend; document.getElementById('img-preview').style.display = 'flex'; }
   }
 }
 
-function addChatMsg(sender, text, isMine, msgId, expectedReaders) {
+function addChatMsg(sender, text, isMine, msgId, expectedReaders, image) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = 'msg ' + (isMine ? 'mine' : 'other');
   if(msgId) div.setAttribute('data-msg-id', msgId);
   const s = document.createElement('div'); s.className = 'sender'; s.textContent = sender; div.appendChild(s);
-  // 文字包一層 .text-content 讓 redacted 狀態下能用 ::before 顯示 █ 遮罩
-  const t = document.createElement('div');
-  const inner = document.createElement('span');
-  inner.className = 'text-content';
-  const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2)));
-  inner.setAttribute('data-mask', '█'.repeat(maskLen));
-  inner.textContent = text;
-  t.appendChild(inner);
-  div.appendChild(t);
+  if(text){
+    const t = document.createElement('div');
+    const inner = document.createElement('span');
+    inner.className = 'text-content';
+    const maskLen = Math.min(30, Math.max(4, Math.ceil((text || '').length / 2) || 4));
+    inner.setAttribute('data-mask', '█'.repeat(maskLen));
+    inner.textContent = text;
+    t.appendChild(inner);
+    div.appendChild(t);
+  }
+  if(image){
+    const imgDiv = document.createElement('div');
+    imgDiv.className = 'msg-image';
+    imgDiv.style.backgroundImage = "url('" + image + "')";
+    imgDiv.addEventListener('click', () => openImageViewer(image, div));
+    imgDiv.addEventListener('contextmenu', (e) => e.preventDefault());
+    div.appendChild(imgDiv);
+  }
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 
   // Burn timing:
