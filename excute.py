@@ -342,6 +342,37 @@ function getWebviewContent(serverUrl) {
   #img-viewer-warn { position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
                      background: rgba(255,69,0,.15); border: 1px solid #ff4500; color: #ff4500;
                      padding: 6px 14px; border-radius: 20px; font-size: 11px; letter-spacing: .5px; }
+
+  /* Reactions */
+  .msg { position: relative; }
+  .msg .react-add { position: absolute; top: 2px; right: -26px; width: 22px; height: 22px;
+                    border: 1px solid #333; background: #1a1a1a; border-radius: 50%;
+                    cursor: pointer; color: #888; font-size: 13px; display: none;
+                    align-items: center; justify-content: center; padding: 0; transition: .15s; }
+  .msg.mine .react-add { right: auto; left: -26px; }
+  .msg:hover .react-add { display: flex; }
+  .msg .react-add:hover { background: #ff4500; color: white; border-color: #ff4500; }
+  .react-picker { position: absolute; top: -30px; right: -26px; background: #1a1a1a;
+                  border: 1px solid #333; border-radius: 16px; padding: 3px 6px;
+                  display: flex; gap: 4px; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+  .msg.mine .react-picker { right: auto; left: -26px; }
+  .react-picker span { cursor: pointer; padding: 2px 5px; border-radius: 3px; font-size: 16px; }
+  .react-picker span:hover { background: #ff4500; transform: scale(1.2); }
+  .reactions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; padding: 0 4px; }
+  .msg.mine .reactions { justify-content: flex-end; }
+  .reaction-chip { display: inline-flex; align-items: center; gap: 3px; background: #1a1a1a;
+                   border: 1px solid #333; border-radius: 10px; padding: 1px 7px; font-size: 11px;
+                   cursor: pointer; color: #888; user-select: none; position: relative; transition: .15s; }
+  .reaction-chip:hover { background: #0d0d0d; border-color: #ff4500; }
+  .reaction-chip.mine { border-color: #ff4500; background: rgba(255,69,0,.1); color: #ff4500; }
+  .reaction-chip .em { font-size: 12px; }
+  .reaction-chip .count { font-weight: bold; }
+  .reaction-chip .tooltip { display: none; position: absolute; bottom: calc(100% + 4px); left: 50%;
+                            transform: translateX(-50%); background: #000; border: 1px solid #333;
+                            color: #e0e0e0; padding: 3px 8px; border-radius: 3px; font-size: 10px;
+                            white-space: nowrap; z-index: 200; pointer-events: none; }
+  .reaction-chip:hover .tooltip { display: block; }
+  #messages.redacted .msg:not(.system) .reactions { opacity: .3; }
   #auth-overlay { position: fixed; inset: 0; background: #0d0d0d;
                   display: flex; align-items: center; justify-content: center;
                   flex-direction: column; gap: 12px; z-index: 100; }
@@ -415,7 +446,6 @@ function getWebviewContent(serverUrl) {
   </div>
   <div id="img-viewer-warn" style="display:none">⚠ 請勿截圖或轉傳 · 訊息焚毀後圖片自動消失</div>
 </div>
-<input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
 
 <script>
 const RAW_URL = '${serverUrl}';
@@ -433,6 +463,8 @@ let cryptoKey = null;
 const msgReads = {}, sentReads = {};
 // 訊息暫存:等 focus 輸入框(別人訊息)或湊齊所有讀者(自己訊息)才開始倒數
 const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
+const msgReactions = {};  // msgId -> { '👍': [users], '😢': [users] }
+const REACTION_EMOJIS = ['👍', '😢'];
 // 線上名單 + UI 狀態
 let roster = [];
 let rosterExpanded = false;
@@ -587,8 +619,6 @@ async function handleImageFile(file){
     alert('處理圖片失敗' + ': ' + e.message);
     pendingImage = null;
   }
-  const inp = document.getElementById('img-file-input');
-  if(inp) inp.value = '';
 }
 function clearImagePreview(){
   pendingImage = null;
@@ -596,14 +626,21 @@ function clearImagePreview(){
   const prev = document.getElementById('img-preview');
   if(prev) prev.style.display = 'none';
 }
-(function bindImgInput(){
-  const wait = setInterval(() => {
-    const f = document.getElementById('img-file-input');
-    if(!f) return;
-    clearInterval(wait);
-    f.onchange = (e) => handleImageFile(e.target.files && e.target.files[0]);
-  }, 100);
-})();
+// ─── 剪貼簿貼上圖片(Ctrl+V / Cmd+V) ────────────────────────
+document.addEventListener('paste', (e) => {
+  if (!authToken) return;
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.indexOf('image/') === 0) {
+      const blob = item.getAsFile();
+      if (blob) {
+        e.preventDefault();
+        handleImageFile(blob);
+        return;
+      }
+    }
+  }
+});
 
 // ─── Fullscreen Viewer ─────────────────────────────────────
 let viewerZoom = 1;
@@ -718,13 +755,7 @@ function stopMsgLiveCheck(){ if(msgLiveCheckTimer){ clearInterval(msgLiveCheckTi
     emojiBtn.textContent = '😀';
     emojiBtn.onclick = (e) => { e.stopPropagation(); toggleEmojiPicker(); };
     inp.insertBefore(emojiBtn, mi);
-    const imgBtn = document.createElement('button');
-    imgBtn.id = 'img-attach';
-    imgBtn.className = 'clean-btn';
-    imgBtn.title = '附加圖片';
-    imgBtn.textContent = '📎';
-    imgBtn.onclick = () => document.getElementById('img-file-input').click();
-    inp.insertBefore(imgBtn, mi);
+    // 📎 附加圖片按鈕已移除,改用 Ctrl+V 貼上
   }, 200);
 })();
 
@@ -1105,6 +1136,21 @@ async function handleEvent(d) {
       } else { text = raw; }
     } catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
     addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders, image);
+    if (d.msgId && d.reactions && typeof d.reactions === 'object') {
+      msgReactions[d.msgId] = d.reactions;
+      renderReactions(d.msgId);
+    }
+  }
+  else if (d.type === 'reactionUpdate') {
+    if (!d.msgId || !d.emoji || !d.user) return;
+    if (!msgReactions[d.msgId]) msgReactions[d.msgId] = {};
+    if (!msgReactions[d.msgId][d.emoji]) msgReactions[d.msgId][d.emoji] = [];
+    const arr = msgReactions[d.msgId][d.emoji];
+    const idx = arr.indexOf(d.user);
+    if (d.action === 'add' && idx === -1) arr.push(d.user);
+    else if (d.action === 'remove' && idx !== -1) arr.splice(idx, 1);
+    if (arr.length === 0) delete msgReactions[d.msgId][d.emoji];
+    renderReactions(d.msgId);
   }
   else if (d.type === 'system') addSysMsg(d.text);
   else if (d.type === 'burnUpdate') {
@@ -1330,6 +1376,60 @@ function updateReadIndicator(msgId) {
   ind.appendChild(namesSpan);
 }
 
+// ─── Reactions ───────────────────────────────────────────
+function openReactionPicker(msgEl, msgId){
+  closeReactionPicker();
+  const picker = document.createElement('div');
+  picker.className = 'react-picker';
+  picker.id = 'active-react-picker';
+  picker.dataset.msgId = msgId;
+  for (const em of REACTION_EMOJIS) {
+    const s = document.createElement('span');
+    s.textContent = em;
+    s.onclick = (e) => { e.stopPropagation(); toggleReaction(msgId, em); closeReactionPicker(); };
+    picker.appendChild(s);
+  }
+  msgEl.appendChild(picker);
+  setTimeout(() => { document.addEventListener('click', closeReactionPicker, { once: true }); }, 0);
+}
+function closeReactionPicker(){
+  const p = document.getElementById('active-react-picker');
+  if (p) p.remove();
+}
+async function toggleReaction(msgId, emoji){
+  if (!authToken) return;
+  const current = (msgReactions[msgId] && msgReactions[msgId][emoji]) || [];
+  const alreadyMine = current.indexOf(nick) !== -1;
+  const action = alreadyMine ? 'remove' : 'add';
+  try {
+    await apiSend({ type: 'reaction', msgId: msgId, emoji: emoji, action: action });
+  } catch(e) {
+    addSysMsg('⚠ Reaction 失敗:' + (e.message || e));
+  }
+}
+function renderReactions(msgId){
+  const el = document.querySelector('[data-msg-id="' + msgId + '"]');
+  if (!el) return;
+  const container = el.querySelector('.reactions');
+  if (!container) return;
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const rs = msgReactions[msgId] || {};
+  for (const em of REACTION_EMOJIS) {
+    const users = rs[em] || [];
+    if (users.length === 0) continue;
+    const chip = document.createElement('div');
+    chip.className = 'reaction-chip';
+    if (users.indexOf(nick) !== -1) chip.classList.add('mine');
+    chip.onclick = () => toggleReaction(msgId, em);
+    const emSpan = document.createElement('span'); emSpan.className = 'em'; emSpan.textContent = em;
+    const cntSpan = document.createElement('span'); cntSpan.className = 'count'; cntSpan.textContent = users.length;
+    const tooltip = document.createElement('div'); tooltip.className = 'tooltip';
+    tooltip.textContent = users.length <= 5 ? users.join(', ') : users.slice(0, 5).join(', ') + ' +' + (users.length - 5);
+    chip.appendChild(emSpan); chip.appendChild(cntSpan); chip.appendChild(tooltip);
+    container.appendChild(chip);
+  }
+}
+
 function addChatMsg(sender, text, isMine, msgId, expectedReaders, image) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
@@ -1355,6 +1455,19 @@ function addChatMsg(sender, text, isMine, msgId, expectedReaders, image) {
     div.appendChild(imgDiv);
   }
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+
+  // Reactions:掛 [+] 按鈕 + 空 .reactions 容器
+  if (msgId) {
+    const addBtn = document.createElement('button');
+    addBtn.className = 'react-add';
+    addBtn.textContent = '+';
+    addBtn.title = 'Add reaction';
+    addBtn.onclick = (e) => { e.stopPropagation(); openReactionPicker(div, msgId); };
+    div.appendChild(addBtn);
+    const reactContainer = document.createElement('div');
+    reactContainer.className = 'reactions';
+    div.appendChild(reactContainer);
+  }
 
   // 倒數觸發邏輯:
   // - 自己的訊息:若沒人需要讀 (expectedReaders === 0) 立刻燒;否則等 read events 湊齊
@@ -1973,6 +2086,44 @@ const server = http.createServer(async (req, res) => {
           });
         }
         return sendJson(res, 200, { ok:true });
+      } else if (body.type === 'reaction' && typeof body.msgId === 'string' && typeof body.emoji === 'string') {
+        // Reactions:明文(server 看得到),驗證 msgId 仍在 log 裡
+        const allowedEmojis = ['👍', '😢'];
+        if (allowedEmojis.indexOf(body.emoji) === -1) {
+          return sendJson(res, 400, { ok:false, error:'不支援的 reaction' });
+        }
+        const action = body.action === 'remove' ? 'remove' : 'add';
+        // 找到對應的 chat event
+        const chatEvent = room.log.find(e => e.type === 'chat' && e.msgId === body.msgId);
+        if (!chatEvent) {
+          return sendJson(res, 404, { ok:false, error:'訊息不存在或已燒毀' });
+        }
+        // 掛在 chat event 上的 reactions map: { '👍': [nick1, nick2], '😢': [nick3] }
+        if (!chatEvent.reactions) chatEvent.reactions = {};
+        if (!chatEvent.reactions[body.emoji]) chatEvent.reactions[body.emoji] = [];
+        const arr = chatEvent.reactions[body.emoji];
+        const idx = arr.indexOf(nick);
+        if (action === 'add' && idx === -1) {
+          arr.push(nick);
+        } else if (action === 'remove' && idx !== -1) {
+          arr.splice(idx, 1);
+        } else {
+          // 無變化,直接回 ok 但不廣播
+          return sendJson(res, 200, { ok:true });
+        }
+        // 清理空陣列
+        if (arr.length === 0) delete chatEvent.reactions[body.emoji];
+        // chat event 內容變了,清掉 _bytes 快取讓 enforceLogSize 重新估算
+        delete chatEvent._bytes;
+        // 廣播 reaction 更新
+        appendEvent(room.id, {
+          type: 'reactionUpdate',
+          msgId: body.msgId,
+          emoji: body.emoji,
+          user: nick,
+          action: action
+        });
+        return sendJson(res, 200, { ok:true });
       } else if (body.type === 'heartbeat') {
         // touchClient 已在上面執行了,這裡只需要回 ok
         return sendJson(res, 200, { ok:true });
@@ -2578,6 +2729,28 @@ body.clean-mode .readby .names{display:none}
 .msg.me .msg-image{background-position:right center}
 #msgs.redacted .msg:not(.sys) .msg-image{filter:blur(18px)}
 
+/* Reactions */
+.msg{position:relative}
+.msg .react-add{position:absolute;top:4px;right:-30px;width:24px;height:24px;border:1px solid var(--border);background:var(--bg2);border-radius:50%;cursor:pointer;color:var(--dim);font-size:14px;display:none;align-items:center;justify-content:center;padding:0;transition:.15s}
+.msg.me .react-add{right:auto;left:-30px}
+.msg:hover .react-add{display:flex}
+.msg .react-add:hover{background:var(--accent);color:white;border-color:var(--accent)}
+.react-picker{position:absolute;top:-32px;right:-30px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:4px 8px;display:flex;gap:4px;z-index:100;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+.msg.me .react-picker{right:auto;left:-30px}
+.react-picker span{cursor:pointer;padding:2px 6px;border-radius:3px;font-size:18px;transition:.1s}
+.react-picker span:hover{background:var(--accent);transform:scale(1.2)}
+.reactions{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;padding:0 4px}
+.msg.me .reactions{justify-content:flex-end}
+.reaction-chip{display:inline-flex;align-items:center;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1px 7px;font-size:11px;cursor:pointer;color:var(--dim);transition:.15s;user-select:none;position:relative}
+.reaction-chip:hover{background:var(--bg);border-color:var(--accent)}
+.reaction-chip.mine{border-color:var(--accent);background:rgba(255,69,0,.1);color:var(--accent)}
+.reaction-chip .em{font-size:13px}
+.reaction-chip .count{font-weight:bold}
+.reaction-chip .tooltip{display:none;position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#000;border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:3px;font-size:10px;white-space:nowrap;z-index:200;pointer-events:none}
+.reaction-chip:hover .tooltip{display:block}
+/* 乾淨版也照常顯示 reactions */
+#msgs.redacted .msg:not(.sys) .reactions{opacity:.3}
+
 /* 全螢幕圖片檢視器 */
 #img-viewer{position:fixed;inset:0;background:rgba(0,0,0,.96);z-index:9999;display:flex;flex-direction:column}
 #img-viewer-stage{flex:1;overflow:hidden;position:relative;cursor:grab;display:flex;align-items:center;justify-content:center}
@@ -2668,8 +2841,6 @@ body.clean-mode #img-preview{box-shadow:none}
   </div>
   <div id="img-viewer-warn" style="display:none">⚠ 請勿截圖或轉傳 · 訊息焚毀後圖片自動消失</div>
 </div>
-<!-- 隱藏的檔案 input -->
-<input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
 <script>
 // Input 左邊再加兩個按鈕(emoji + 圖片)
 (function injectInputButtons(){
@@ -2683,13 +2854,7 @@ body.clean-mode #img-preview{box-shadow:none}
   emojiBtn.textContent = '😀';
   emojiBtn.onclick = (e) => { e.stopPropagation(); toggleEmojiPicker(); };
   inp.insertBefore(emojiBtn, mi);
-  const imgBtn = document.createElement('button');
-  imgBtn.id = 'img-attach';
-  imgBtn.className = 'clean-btn';
-  imgBtn.title = '附加圖片';
-  imgBtn.textContent = '📎';
-  imgBtn.onclick = () => document.getElementById('img-file-input').click();
-  inp.insertBefore(imgBtn, mi);
+  // 📎 附加圖片按鈕已移除,改用 Ctrl+V 貼上
 })();
 </script>
 <script>
@@ -2706,6 +2871,8 @@ const msgReads = {}, sentReads = {};
 // 別人的訊息 → 等我 focus 輸入框才燒
 // 自己的訊息 → 等所有人都讀過才燒 (readersNeeded 人次)
 const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
+const msgReactions = {};  // msgId -> { '👍': [users], '😢': [users] }
+const REACTION_EMOJIS = ['👍', '😢'];
 // 線上名單 + UI 狀態
 let roster = [];                // 當下線上使用者 nick 陣列
 let rosterExpanded = false;     // 使用者手動切換
@@ -2872,9 +3039,6 @@ async function handleImageFile(file){
     alert('處理圖片失敗:' + e.message);
     pendingImage = null;
   }
-  // 清除 input,同一檔案可再選一次
-  const inp = document.getElementById('img-file-input');
-  if(inp) inp.value = '';
 }
 function clearImagePreview(){
   pendingImage = null;
@@ -2882,14 +3046,22 @@ function clearImagePreview(){
   const prev = document.getElementById('img-preview');
   if(prev) prev.style.display = 'none';
 }
-(function bindImgInput(){
-  const wait = setInterval(() => {
-    const f = document.getElementById('img-file-input');
-    if(!f) return;
-    clearInterval(wait);
-    f.onchange = (e) => handleImageFile(e.target.files && e.target.files[0]);
-  }, 100);
-})();
+// ─── 剪貼簿貼上圖片(Ctrl+V / Cmd+V) ────────────────────────
+document.addEventListener('paste', (e) => {
+  // 只在聊天室已登入狀態才處理(避免登入框貼上誤觸)
+  if (!authToken) return;
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.indexOf('image/') === 0) {
+      const blob = item.getAsFile();
+      if (blob) {
+        e.preventDefault();
+        handleImageFile(blob);
+        return;
+      }
+    }
+  }
+});
 
 // ─── 圖片全螢幕檢視器 ──────────────────────────────────────────
 let viewerZoom = 1;
@@ -3399,6 +3571,22 @@ async function handleEvent(d) {
     }
     catch(err){ text = '⚠ [無法解密 — 密碼不一致或訊息毀損]'; }
     addMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders, image);
+    // 若 server 已帶來 reactions(我是後進來的人),套用
+    if (d.msgId && d.reactions && typeof d.reactions === 'object') {
+      msgReactions[d.msgId] = d.reactions;
+      renderReactions(d.msgId);
+    }
+  }
+  else if (d.type === 'reactionUpdate') {
+    if (!d.msgId || !d.emoji || !d.user) return;
+    if (!msgReactions[d.msgId]) msgReactions[d.msgId] = {};
+    if (!msgReactions[d.msgId][d.emoji]) msgReactions[d.msgId][d.emoji] = [];
+    const arr = msgReactions[d.msgId][d.emoji];
+    const idx = arr.indexOf(d.user);
+    if (d.action === 'add' && idx === -1) arr.push(d.user);
+    else if (d.action === 'remove' && idx !== -1) arr.splice(idx, 1);
+    if (arr.length === 0) delete msgReactions[d.msgId][d.emoji];
+    renderReactions(d.msgId);
   }
   else if (d.type === 'system') addSys(d.text);
   else if (d.type === 'burnUpdate') {
@@ -3658,6 +3846,19 @@ function addMsg(sender, text, isMe, msgId, expectedReaders, image){
   }
   m.appendChild(d); m.scrollTop = m.scrollHeight;
 
+  // Reactions:加 [+] 按鈕 + 空的 .reactions 容器
+  if (msgId) {
+    const addBtn = document.createElement('button');
+    addBtn.className = 'react-add';
+    addBtn.textContent = '+';
+    addBtn.title = '新增 reaction';
+    addBtn.onclick = (e) => { e.stopPropagation(); openReactionPicker(d, msgId); };
+    d.appendChild(addBtn);
+    const reactContainer = document.createElement('div');
+    reactContainer.className = 'reactions';
+    d.querySelector('.bubble').appendChild(reactContainer);
+  }
+
   // 倒數觸發邏輯
   // - 自己的訊息:若當下沒人需要讀 (expectedReaders === 0),立刻燒;否則等 read event 湊齊
   // - 別人的訊息:加 unread 標記,等我 focus 輸入框才燒
@@ -3680,10 +3881,66 @@ function addMsg(sender, text, isMe, msgId, expectedReaders, image){
   }
 }
 
+// ─── Reactions ───────────────────────────────────────────
+function openReactionPicker(msgEl, msgId){
+  // 若已有 picker,先關閉
+  closeReactionPicker();
+  const picker = document.createElement('div');
+  picker.className = 'react-picker';
+  picker.id = 'active-react-picker';
+  picker.dataset.msgId = msgId;
+  for (const em of REACTION_EMOJIS) {
+    const s = document.createElement('span');
+    s.textContent = em;
+    s.onclick = (e) => { e.stopPropagation(); toggleReaction(msgId, em); closeReactionPicker(); };
+    picker.appendChild(s);
+  }
+  msgEl.appendChild(picker);
+  // 點外面關閉
+  setTimeout(() => {
+    document.addEventListener('click', closeReactionPicker, { once: true });
+  }, 0);
+}
+function closeReactionPicker(){
+  const p = document.getElementById('active-react-picker');
+  if (p) p.remove();
+}
+async function toggleReaction(msgId, emoji){
+  if (!authToken) return;
+  const current = (msgReactions[msgId] && msgReactions[msgId][emoji]) || [];
+  const alreadyMine = current.indexOf(nick) !== -1;
+  const action = alreadyMine ? 'remove' : 'add';
+  try {
+    await apiSend({ type: 'reaction', msgId: msgId, emoji: emoji, action: action });
+  } catch(e) {
+    addSys('⚠ Reaction 失敗:' + (e.message || e));
+  }
+}
+function renderReactions(msgId){
+  const el = document.querySelector('[data-msg-id="' + msgId + '"]');
+  if (!el) return;
+  const container = el.querySelector('.reactions');
+  if (!container) return;
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const rs = msgReactions[msgId] || {};
+  for (const em of REACTION_EMOJIS) {
+    const users = rs[em] || [];
+    if (users.length === 0) continue;
+    const chip = document.createElement('div');
+    chip.className = 'reaction-chip';
+    if (users.indexOf(nick) !== -1) chip.classList.add('mine');
+    chip.onclick = () => toggleReaction(msgId, em);
+    const emSpan = document.createElement('span'); emSpan.className = 'em'; emSpan.textContent = em;
+    const cntSpan = document.createElement('span'); cntSpan.className = 'count'; cntSpan.textContent = users.length;
+    const tooltip = document.createElement('div'); tooltip.className = 'tooltip';
+    tooltip.textContent = users.length <= 5 ? users.join(', ') : users.slice(0, 5).join(', ') + ' +' + (users.length - 5);
+    chip.appendChild(emSpan); chip.appendChild(cntSpan); chip.appendChild(tooltip);
+    container.appendChild(chip);
+  }
+}
+
 // focus 輸入框 → 所有當下未讀的別人訊息,標為已讀 + 開始倒數
 function onUserRead() {
-  // 批次 scheduleBurn:按年齡順序(最舊在前)遞增 delay
-  // 第 1 則 +0 秒,第 2 則 +1 秒,第 3 則 +2 秒...
   // 避免一次堆疊大量訊息時同時消失
   let delay = 0;
   for (const [msgId, info] of pendingBurn) {
@@ -4106,6 +4363,37 @@ function getWebviewContent(serverUrl) {
   #img-viewer-warn { position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
                      background: rgba(255,69,0,.15); border: 1px solid #ff4500; color: #ff4500;
                      padding: 6px 14px; border-radius: 20px; font-size: 11px; letter-spacing: .5px; }
+
+  /* Reactions */
+  .msg { position: relative; }
+  .msg .react-add { position: absolute; top: 2px; right: -26px; width: 22px; height: 22px;
+                    border: 1px solid #333; background: #1a1a1a; border-radius: 50%;
+                    cursor: pointer; color: #888; font-size: 13px; display: none;
+                    align-items: center; justify-content: center; padding: 0; transition: .15s; }
+  .msg.mine .react-add { right: auto; left: -26px; }
+  .msg:hover .react-add { display: flex; }
+  .msg .react-add:hover { background: #ff4500; color: white; border-color: #ff4500; }
+  .react-picker { position: absolute; top: -30px; right: -26px; background: #1a1a1a;
+                  border: 1px solid #333; border-radius: 16px; padding: 3px 6px;
+                  display: flex; gap: 4px; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+  .msg.mine .react-picker { right: auto; left: -26px; }
+  .react-picker span { cursor: pointer; padding: 2px 5px; border-radius: 3px; font-size: 16px; }
+  .react-picker span:hover { background: #ff4500; transform: scale(1.2); }
+  .reactions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; padding: 0 4px; }
+  .msg.mine .reactions { justify-content: flex-end; }
+  .reaction-chip { display: inline-flex; align-items: center; gap: 3px; background: #1a1a1a;
+                   border: 1px solid #333; border-radius: 10px; padding: 1px 7px; font-size: 11px;
+                   cursor: pointer; color: #888; user-select: none; position: relative; transition: .15s; }
+  .reaction-chip:hover { background: #0d0d0d; border-color: #ff4500; }
+  .reaction-chip.mine { border-color: #ff4500; background: rgba(255,69,0,.1); color: #ff4500; }
+  .reaction-chip .em { font-size: 12px; }
+  .reaction-chip .count { font-weight: bold; }
+  .reaction-chip .tooltip { display: none; position: absolute; bottom: calc(100% + 4px); left: 50%;
+                            transform: translateX(-50%); background: #000; border: 1px solid #333;
+                            color: #e0e0e0; padding: 3px 8px; border-radius: 3px; font-size: 10px;
+                            white-space: nowrap; z-index: 200; pointer-events: none; }
+  .reaction-chip:hover .tooltip { display: block; }
+  #messages.redacted .msg:not(.system) .reactions { opacity: .3; }
   #auth-overlay { position: fixed; inset: 0; background: #0d0d0d;
                   display: flex; align-items: center; justify-content: center;
                   flex-direction: column; gap: 12px; z-index: 100; }
@@ -4179,7 +4467,6 @@ function getWebviewContent(serverUrl) {
   </div>
   <div id="img-viewer-warn" style="display:none">⚠ Do not screenshot or share · image auto-destroyed</div>
 </div>
-<input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
 
 <script>
 const RAW_URL = '${serverUrl}';
@@ -4197,6 +4484,8 @@ let cryptoKey = null;
 const msgReads = {}, sentReads = {};
 // 訊息暫存:等 focus 輸入框(別人訊息)或湊齊所有讀者(自己訊息)才開始倒數
 const pendingBurn = new Map();  // msgId -> { el, isMine, readersNeeded, readersGot }
+const msgReactions = {};  // msgId -> { '👍': [users], '😢': [users] }
+const REACTION_EMOJIS = ['👍', '😢'];
 // 線上名單 + UI 狀態
 let roster = [];
 let rosterExpanded = false;
@@ -4351,8 +4640,6 @@ async function handleImageFile(file){
     alert('Image processing failed' + ': ' + e.message);
     pendingImage = null;
   }
-  const inp = document.getElementById('img-file-input');
-  if(inp) inp.value = '';
 }
 function clearImagePreview(){
   pendingImage = null;
@@ -4360,14 +4647,21 @@ function clearImagePreview(){
   const prev = document.getElementById('img-preview');
   if(prev) prev.style.display = 'none';
 }
-(function bindImgInput(){
-  const wait = setInterval(() => {
-    const f = document.getElementById('img-file-input');
-    if(!f) return;
-    clearInterval(wait);
-    f.onchange = (e) => handleImageFile(e.target.files && e.target.files[0]);
-  }, 100);
-})();
+// ─── Paste image from clipboard (Ctrl+V / Cmd+V) ─────────────
+document.addEventListener('paste', (e) => {
+  if (!authToken) return;
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.indexOf('image/') === 0) {
+      const blob = item.getAsFile();
+      if (blob) {
+        e.preventDefault();
+        handleImageFile(blob);
+        return;
+      }
+    }
+  }
+});
 
 // ─── Fullscreen Viewer ─────────────────────────────────────
 let viewerZoom = 1;
@@ -4482,13 +4776,7 @@ function stopMsgLiveCheck(){ if(msgLiveCheckTimer){ clearInterval(msgLiveCheckTi
     emojiBtn.textContent = '😀';
     emojiBtn.onclick = (e) => { e.stopPropagation(); toggleEmojiPicker(); };
     inp.insertBefore(emojiBtn, mi);
-    const imgBtn = document.createElement('button');
-    imgBtn.id = 'img-attach';
-    imgBtn.className = 'clean-btn';
-    imgBtn.title = 'Attach image';
-    imgBtn.textContent = '📎';
-    imgBtn.onclick = () => document.getElementById('img-file-input').click();
-    inp.insertBefore(imgBtn, mi);
+    // 📎 attach button removed; use Ctrl+V to paste
   }, 200);
 })();
 
@@ -4854,6 +5142,21 @@ async function handleEvent(d){
       } else { text = raw; }
     } catch(err){ text = '[Cannot decrypt - wrong password or corrupted message]'; }
     addChatMsg(d.sender, text, d.sender === nick, d.msgId, d.expectedReaders, image);
+    if(d.msgId && d.reactions && typeof d.reactions === 'object'){
+      msgReactions[d.msgId] = d.reactions;
+      renderReactions(d.msgId);
+    }
+  }
+  else if(d.type === 'reactionUpdate'){
+    if(!d.msgId || !d.emoji || !d.user) return;
+    if(!msgReactions[d.msgId]) msgReactions[d.msgId] = {};
+    if(!msgReactions[d.msgId][d.emoji]) msgReactions[d.msgId][d.emoji] = [];
+    const arr = msgReactions[d.msgId][d.emoji];
+    const idx = arr.indexOf(d.user);
+    if(d.action === 'add' && idx === -1) arr.push(d.user);
+    else if(d.action === 'remove' && idx !== -1) arr.splice(idx, 1);
+    if(arr.length === 0) delete msgReactions[d.msgId][d.emoji];
+    renderReactions(d.msgId);
   }
   else if(d.type === 'system') addSysMsg(d.text);
   else if(d.type === 'burnUpdate'){
@@ -5106,6 +5409,60 @@ async function sendMsg() {
   }
 }
 
+// ─── Reactions ───────────────────────────────────────────
+function openReactionPicker(msgEl, msgId){
+  closeReactionPicker();
+  const picker = document.createElement('div');
+  picker.className = 'react-picker';
+  picker.id = 'active-react-picker';
+  picker.dataset.msgId = msgId;
+  for(const em of REACTION_EMOJIS){
+    const s = document.createElement('span');
+    s.textContent = em;
+    s.onclick = (e) => { e.stopPropagation(); toggleReaction(msgId, em); closeReactionPicker(); };
+    picker.appendChild(s);
+  }
+  msgEl.appendChild(picker);
+  setTimeout(() => { document.addEventListener('click', closeReactionPicker, { once: true }); }, 0);
+}
+function closeReactionPicker(){
+  const p = document.getElementById('active-react-picker');
+  if(p) p.remove();
+}
+async function toggleReaction(msgId, emoji){
+  if(!authToken) return;
+  const current = (msgReactions[msgId] && msgReactions[msgId][emoji]) || [];
+  const alreadyMine = current.indexOf(nick) !== -1;
+  const action = alreadyMine ? 'remove' : 'add';
+  try {
+    await apiSend({ type: 'reaction', msgId: msgId, emoji: emoji, action: action });
+  } catch(e){
+    addSysMsg('Reaction failed: ' + (e.message || e));
+  }
+}
+function renderReactions(msgId){
+  const el = document.querySelector('[data-msg-id="' + msgId + '"]');
+  if(!el) return;
+  const container = el.querySelector('.reactions');
+  if(!container) return;
+  while(container.firstChild) container.removeChild(container.firstChild);
+  const rs = msgReactions[msgId] || {};
+  for(const em of REACTION_EMOJIS){
+    const users = rs[em] || [];
+    if(users.length === 0) continue;
+    const chip = document.createElement('div');
+    chip.className = 'reaction-chip';
+    if(users.indexOf(nick) !== -1) chip.classList.add('mine');
+    chip.onclick = () => toggleReaction(msgId, em);
+    const emSpan = document.createElement('span'); emSpan.className = 'em'; emSpan.textContent = em;
+    const cntSpan = document.createElement('span'); cntSpan.className = 'count'; cntSpan.textContent = users.length;
+    const tooltip = document.createElement('div'); tooltip.className = 'tooltip';
+    tooltip.textContent = users.length <= 5 ? users.join(', ') : users.slice(0, 5).join(', ') + ' +' + (users.length - 5);
+    chip.appendChild(emSpan); chip.appendChild(cntSpan); chip.appendChild(tooltip);
+    container.appendChild(chip);
+  }
+}
+
 function addChatMsg(sender, text, isMine, msgId, expectedReaders, image) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
@@ -5131,6 +5488,19 @@ function addChatMsg(sender, text, isMine, msgId, expectedReaders, image) {
     div.appendChild(imgDiv);
   }
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+
+  // Reactions: add [+] button + empty .reactions container
+  if(msgId){
+    const addBtn = document.createElement('button');
+    addBtn.className = 'react-add';
+    addBtn.textContent = '+';
+    addBtn.title = 'Add reaction';
+    addBtn.onclick = (e) => { e.stopPropagation(); openReactionPicker(div, msgId); };
+    div.appendChild(addBtn);
+    const reactContainer = document.createElement('div');
+    reactContainer.className = 'reactions';
+    div.appendChild(reactContainer);
+  }
 
   // Burn timing:
   // - My own msg: if nobody needs to read (expectedReaders === 0), start burning immediately;
